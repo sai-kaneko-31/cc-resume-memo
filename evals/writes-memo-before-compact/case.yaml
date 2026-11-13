@@ -1,0 +1,62 @@
+schema_version: "1.1"
+name: writes-memo-before-compact
+description: The user announces /compact after recapping a session. The memo must keep the decision and its rejected alternative, the failed attempt and the exact path, and mark the one-run observation as unverified.
+tags: [memo, content]
+execution:
+  max_turns: 12
+  allowed_tools: [Read, Skill]
+  prompt: |
+    We've been debugging a CSV export bug for the last hour. Here is where things stand:
+    - The export of 10 rows returns 9 rows. A customer reported it.
+    - I ran `bin/export --rows 10 | wc -l` and got 9 lines. That was one run only.
+    - I suspect an off-by-one in the batch loop at app/exports/csv.rb:42, but I haven't confirmed it.
+    - We decided to stream the rows instead of building the whole file in memory, because the customer's real export is 2 GB. We rejected raising the memory limit.
+    - I tried upgrading the csv gem to 3.3.0. It made no difference.
+    - Next: write a failing test for the 10-row case, then fix the loop.
+    The branch is fix/csv-export at commit 1a2b3c4, and the working directory is /work/myapp.
+
+    I'm about to run /compact. Save the session state before I do, to ./out/memo.yml (create the directory).
+graders:
+  # Run with --allow-tools Write, otherwise the memo cannot be written.
+  - name: skill-fired
+    type: tool_used
+    tool: Skill
+    input_match: resume-memo
+    min: 1
+    arm: with-only
+  - name: memo-written
+    type: file_exists
+    path: out/memo.yml
+  - name: status-open
+    type: regex
+    target: { source: file, path: out/memo.yml }
+    pattern: 'status: open'
+  - name: single-observation-marked-unverified
+    type: regex
+    target: { source: file, path: out/memo.yml }
+    pattern: 'basis:[\s\S]{0,100}unverified'
+    flags: i
+  - name: keeps-path-and-line-verbatim
+    type: regex
+    target: { source: file, path: out/memo.yml }
+    pattern: 'app/exports/csv\.rb:42'
+  - name: records-rejected-alternative
+    type: regex
+    target: { source: file, path: out/memo.yml }
+    pattern: 'rejected:[\s\S]{0,120}memory'
+    flags: i
+  - name: records-failed-attempt
+    type: regex
+    target: { source: file, path: out/memo.yml }
+    pattern: 'failed:[\s\S]*3\.3\.0'
+    flags: i
+  - name: no-diff-copied
+    type: regex
+    target: { source: file, path: out/memo.yml }
+    pattern: 'diff --git|\n@@ '
+    match: not_contains
+  - name: separates-fact-and-inference
+    type: llm
+    focus: { source: file, path: out/memo.yml }
+    criteria: |
+      The memo keeps observations and inferences apart: what was run and seen goes under `fact`, and the off-by-one suspicion appears only as an `inference` with a `basis` that says it is unverified, never as an established fact. The memo does not copy file contents or diffs, and its next steps are concrete and ordered.

@@ -1,0 +1,28 @@
+schema_version: "1.1"
+name: does-not-run-on-discussion
+description: The user only asks how /compact works. The skill must not write a memo.
+tags: [trigger, negative]
+execution:
+  max_turns: 6
+  allowed_tools: [Read, Skill]
+  prompt: |
+    I'm curious how /compact actually works. Does it throw away details from the conversation, or just shorten them?
+graders:
+  # Run with --allow-tools Write. Without it Claude cannot create a file at all,
+  # and the check below passes whatever the skill does.
+  - name: no-file-created
+    type: file_exists
+    path: "**/*"
+    exists: false
+  - name: skill-not-fired
+    type: tool_used
+    tool: Skill
+    input_match: resume-memo
+    min: 0
+    max: 0
+    arm: with-only
+  - name: answers-the-question
+    type: llm
+    focus: last_message
+    criteria: |
+      The reply explains what /compact does to the conversation (it summarizes it, so detail can be lost). It may offer to save the session state, but it must not claim that it already wrote a memo file.
