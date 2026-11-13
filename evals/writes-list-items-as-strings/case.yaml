@@ -1,0 +1,40 @@
+schema_version: "1.1"
+name: writes-list-items-as-strings
+description: >-
+  The recap has steps containing ": " and " #". A plain YAML list item with
+  either one is read as a mapping or loses text, so the memo must write such
+  items as block scalars or quoted strings.
+tags: [memo, yaml]
+execution:
+  max_turns: 12
+  allowed_tools: [Read, Skill]
+  prompt: |
+    Where things stand on the CSV export bug:
+    - Repro: `bin/export --rows 10 | wc -l` prints 9.
+    - Next step 1: run the migration (`bin/rails db:migrate`), then re-run the repro and compare the line count.
+    - Next step 2: fix the loop, see issue #123 for the expected behaviour.
+    - Done so far: reproduced once; checked the gem version (3.2.0), no change.
+    Branch fix/csv-export, commit 1a2b3c4, directory /work/myapp.
+
+    I'm about to run /compact. Save the session state to ./out/memo.yml (create the directory).
+graders:
+  # Run with --allow-tools Write, otherwise the memo cannot be written.
+  - name: memo-written
+    type: file_exists
+    path: out/memo.yml
+  - name: has-next-steps
+    type: regex
+    target: { source: file, path: out/memo.yml }
+    pattern: 'next:'
+  - name: keeps-the-issue-number
+    type: regex
+    target: { source: file, path: out/memo.yml }
+    pattern: '#123'
+  # A plain list item (not "- |", not quoted, not one of the mapping-item keys)
+  # that contains ": " or " #".
+  - name: no-plain-list-item-with-colon-or-hash
+    type: regex
+    target: { source: file, path: out/memo.yml }
+    pattern: '^[ \t]+- (?!\||"|''|what:|fact:|tried:|path:)[^\n]*(: | #)'
+    flags: m
+    match: not_contains

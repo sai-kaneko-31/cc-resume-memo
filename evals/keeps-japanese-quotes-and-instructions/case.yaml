@@ -1,0 +1,46 @@
+schema_version: "1.1"
+name: keeps-japanese-quotes-and-instructions
+description: A Japanese session with two standing instructions from the user. The memo keeps the instructions in user_instructions, quotes the user's words verbatim, and writes the task name in English.
+tags: [memo, language, content]
+execution:
+  max_turns: 12
+  allowed_tools: [Read, Skill]
+  prompt: |
+    CSV 出力のバグを 1 時間ほど調べていました。状況は次のとおりです。
+    - 10 行を出力すると 9 行しか出ません。
+    - `bin/export --rows 10 | wc -l` を 1 回だけ実行して、9 行でした。
+    - 方針は、メモリに全部載せず、行を順に書き出すことに決めました。
+    - 私の指示は「コミットの前に必ず rubocop を通すこと」です。
+    - 私の指示は「本番 DB には絶対に触らない」です。
+    - 次は、10 行で失敗するテストを書くことです。
+    ブランチは fix/csv-export、コミットは 1a2b3c4、作業ディレクトリは /work/myapp です。
+
+    compact する前に、セッションの状態を保存してください。./out/memo.yml に書いてください（ディレクトリは作ってください）。
+graders:
+  # Run with --allow-tools Write, otherwise the memo cannot be written.
+  - name: skill-fired
+    type: tool_used
+    tool: Skill
+    input_match: resume-memo
+    min: 1
+    arm: with-only
+  - name: memo-written
+    type: file_exists
+    path: out/memo.yml
+  - name: has-user-instructions-key
+    type: regex
+    target: { source: file, path: out/memo.yml }
+    pattern: 'user_instructions:'
+  - name: keeps-the-quoted-instruction-verbatim
+    type: regex
+    target: { source: file, path: out/memo.yml }
+    pattern: '本番 DB には絶対に触らない'
+  - name: keeps-the-other-instruction
+    type: regex
+    target: { source: file, path: out/memo.yml }
+    pattern: 'rubocop'
+  - name: task-name-is-english
+    type: regex
+    target: { source: file, path: out/memo.yml }
+    pattern: 'task:[^\n]*[぀-ヿ一-鿿]'
+    match: not_contains

@@ -1,0 +1,45 @@
+schema_version: "1.1"
+name: does-not-copy-file-contents
+description: The recap pastes a whole file. The memo must point at the file and line instead of copying the code.
+tags: [memo, content]
+execution:
+  max_turns: 12
+  allowed_tools: [Read, Skill]
+  prompt: |
+    We're fixing the CSV export. This is lib/exporter.rb as it stands (I pasted it so you can see it):
+
+    ```ruby
+    class Exporter
+      BATCH_SIZE = 500
+
+      def initialize(rows)
+        @rows = rows
+      end
+
+      def each_batch
+        @rows.each_slice(BATCH_SIZE) do |batch|
+          yield batch.map { |r| r.join(",") }
+        end
+      end
+    end
+    ```
+
+    Finding so far: the batch loop at lib/exporter.rb:9 looks wrong for the last partial batch, but I haven't run anything yet.
+    Branch fix/csv-export, commit 1a2b3c4, directory /work/myapp.
+
+    I'm about to run /compact. Save the session state to ./out/memo.yml (create the directory).
+graders:
+  # Run with --allow-tools Write, otherwise the memo cannot be written.
+  - name: memo-written
+    type: file_exists
+    path: out/memo.yml
+  - name: keeps-path-and-line
+    type: regex
+    target: { source: file, path: out/memo.yml }
+    pattern: 'lib/exporter\.rb:9'
+  # Quoting one expression is fine. Copying the class or its method headers is not.
+  - name: does-not-copy-the-file
+    type: regex
+    target: { source: file, path: out/memo.yml }
+    pattern: 'class Exporter|def each_batch|def initialize'
+    match: not_contains

@@ -1,0 +1,22 @@
+schema_version: "1.1"
+name: does-not-run-on-should-i-compact
+description: The user asks whether to compact. Answering, or asking back, is fine; writing a memo is not.
+tags: [trigger, negative]
+execution:
+  max_turns: 6
+  allowed_tools: [Read, Skill]
+  prompt: |
+    We're about 70% through the context window and still in the middle of a CSV export bug. Should I run /compact now or keep going?
+graders:
+  # Run with --allow-tools Write, otherwise the check below passes whatever the skill does.
+  - name: no-file-created
+    type: file_exists
+    path: "**/*"
+    exists: false
+  - name: skill-not-fired
+    type: tool_used
+    tool: Skill
+    input_match: resume-memo
+    min: 0
+    max: 0
+    arm: with-only

@@ -67,3 +67,8 @@ graders:
     target: { source: file, path: out/memo.yml }
     pattern: 'fact:(?:(?!inference:)[\s\S])*?off-by-one'
     match: not_contains
+  # The final message gives the sentence to paste into the next session.
+  - name: closing-message-gives-the-restore-sentence
+    type: regex
+    pattern: 'Read[\s\x60]+\S*out/memo\.yml[\s\x60]+and resume the work'
+    flags: i
