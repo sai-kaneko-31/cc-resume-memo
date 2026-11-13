@@ -16,6 +16,7 @@ Every run is a real model call on your account, and each case runs three times w
 claude plugin eval . --case does-not-run-on-discussion --allow-tools Write --max-cost-usd 1 --no-publish
 ```
 
+- In a trial run (Claude Code 2.1.323, default models), one case with its six runs cost $0.26 to $0.49 by the command's list-price estimate.
 - `--allow-tools Write` is required. Without it Claude cannot create a file, so the negative checks (`no-file-created`, `secret-value-absent`) pass whatever the skill does.
 - The recap is part of the prompt, because a case starts in an empty workspace with no earlier conversation. These cases test what the skill writes from a recap, not how it reads a long real conversation.
 - Each run has a temporary home directory, so the default memo location is not used. The prompts name an output path under the workspace instead.

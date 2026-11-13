@@ -55,8 +55,15 @@ graders:
     target: { source: file, path: out/memo.yml }
     pattern: 'diff --git|\n@@ '
     match: not_contains
-  - name: separates-fact-and-inference
-    type: llm
-    focus: { source: file, path: out/memo.yml }
-    criteria: |
-      The memo keeps observations and inferences apart: what was run and seen goes under `fact`, and the off-by-one suspicion appears only as an `inference` with a `basis` that says it is unverified, never as an established fact. The memo does not copy file contents or diffs, and its next steps are concrete and ordered.
+  # Two regex checks instead of an llm judge: in a trial run, a judge model gave
+  # PASS PASS PASS and FAIL FAIL PASS to two memos whose observations were
+  # almost the same text.
+  - name: has-an-inference-item
+    type: regex
+    target: { source: file, path: out/memo.yml }
+    pattern: 'inference:'
+  - name: suspicion-not-written-as-fact
+    type: regex
+    target: { source: file, path: out/memo.yml }
+    pattern: 'fact:(?:(?!inference:)[\s\S])*?off-by-one'
+    match: not_contains
