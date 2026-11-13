@@ -1,0 +1,15 @@
+{
+  "name": "cc-resume-memo",
+  "owner": {
+    "name": "sai-kaneko-31",
+    "url": "https://github.com/sai-kaneko-31"
+  },
+  "description": "A Claude Code plugin that writes a per-session resume memo, so a fresh session can continue from the file alone.",
+  "plugins": [
+    {
+      "name": "resume-memo",
+      "source": "./",
+      "description": "Write the working state that exists only in the conversation to a per-session YAML memo, and restore it after /compact or /clear."
+    }
+  ]
+}
