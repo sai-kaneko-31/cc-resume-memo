@@ -63,6 +63,12 @@ printf 'task: x\nstatus: open\nnext:\n  - fix the bug: it fails on empty input\n
 printf 'task: x\nstatus: open\ncommands:\n  - yes\n' > "$tmp/bool-item.yml"
 printf 'task: x\nstatus: open\ngoal: a: b\n' > "$tmp/syntax-error.yml"
 { printf 'task: x\nstatus: open\ngoal: a: b\ncommands:\n  - export GITHUB_TOKEN=%s\n' "$gh_token"; } > "$tmp/syntax-and-secret.yml"
+# A " #" in a plain value starts a YAML comment: the load succeeds and the rest of the line is gone.
+printf 'task: x\nstatus: open\nnext:\n  - fix the loop, see issue #123 for the expected behaviour\n' > "$tmp/hash-lost-item.yml"
+printf 'task: x\nstatus: open\ngoal: ship it #now\n' > "$tmp/hash-lost-value.yml"
+printf 'task: x\nstatus: open\nnext:\n  - |\n    fix the loop, see issue #123 for the expected behaviour\n' > "$tmp/hash-in-block.yml"
+printf 'task: x\nstatus: open\nnext:\n  - "fix the loop, see issue #123"\n' > "$tmp/hash-quoted.yml"
+printf 'task: x\nstatus: open\ngoal: see https://example.com/page#section\n' > "$tmp/hash-url.yml"
 
 run_runtime_cases() {
   local rt="$1"
@@ -70,6 +76,11 @@ run_runtime_cases() {
   expect "[$rt] list item read as a mapping" 1 "next[0]" -- env RESUME_MEMO_YAML="$rt" "$check" "$tmp/hash-item.yml"
   expect "[$rt] list item read as a boolean" 1 "commands[0]" -- env RESUME_MEMO_YAML="$rt" "$check" "$tmp/bool-item.yml"
   expect "[$rt] syntax error" 1 "YAML: FAILED" -- env RESUME_MEMO_YAML="$rt" "$check" "$tmp/syntax-error.yml"
+  expect "[$rt] text lost after ' #' in a list item" 1 "read as a comment" -- env RESUME_MEMO_YAML="$rt" "$check" "$tmp/hash-lost-item.yml"
+  expect "[$rt] text lost after ' #' in a value" 1 "read as a comment" -- env RESUME_MEMO_YAML="$rt" "$check" "$tmp/hash-lost-value.yml"
+  expect "[$rt] ' #' kept in a block scalar" 0 "YAML: ok ($rt)" -- env RESUME_MEMO_YAML="$rt" "$check" "$tmp/hash-in-block.yml"
+  expect "[$rt] ' #' kept in a quoted string" 0 "YAML: ok ($rt)" -- env RESUME_MEMO_YAML="$rt" "$check" "$tmp/hash-quoted.yml"
+  expect "[$rt] '#' inside a URL is not a comment" 0 "YAML: ok ($rt)" -- env RESUME_MEMO_YAML="$rt" "$check" "$tmp/hash-url.yml"
   expect "[$rt] GitHub token" 2 "GitHub token" -- env RESUME_MEMO_YAML="$rt" "$check" "$tmp/secret-gh.yml"
   expect "[$rt] AWS access key" 2 "AWS access key ID" -- env RESUME_MEMO_YAML="$rt" "$check" "$tmp/secret-aws.yml"
   expect "[$rt] YAML failure wins over a secret" 1 "Possible secrets" -- env RESUME_MEMO_YAML="$rt" "$check" "$tmp/syntax-and-secret.yml"

@@ -102,7 +102,7 @@ commands:
 The template is a checklist, not a form to fill in. Delete empty keys. Writing rules:
 
 - The first six keys (`task` to `head`) are one-line values, so that `grep -l '^status: open' <dir>/*.yml` finds memos line by line.
-- Use a block scalar (`|`) when a value contains `: ` or ` #`, starts with a symbol (backtick, `"`, `'`, `[`, `{`, `*`, `&`, `!`, `|`, `>`, `%`, `@`, `- `, `? `), or is verbatim multi-line text such as an error message or command output. A block scalar keeps text verbatim more reliably than quoting.
+- Use a block scalar (`|`) when a value contains `: ` or ` #` (an issue reference such as `see issue #123` counts: YAML reads ` #123` as the start of a comment and drops it with the rest of the line), starts with a symbol (backtick, `"`, `'`, `[`, `{`, `*`, `&`, `!`, `|`, `>`, `%`, `@`, `- `, `? `), or is verbatim multi-line text such as an error message or command output. A block scalar keeps text verbatim more reliably than quoting.
 - `status` is `open` when there is something to continue and `done` when the work is finished. Write `open` when creating a memo.
 
 ## Check after writing
@@ -116,7 +116,7 @@ Run the check before the closing message. A memo reads fine as text, so a mistak
 Exit codes:
 
 - 0: the memo loads, every list item is a string, and no secret-like text was found.
-- 1: it does not load, or a list item is not a string. The output says which.
+- 1: it does not load, a list item is not a string, or text after a ` #` was read as a comment. The output says which.
 - 2: secret-like text was found on the reported lines. Remove the value and keep only the name.
 - 3: neither ruby nor python3 with PyYAML is available, so the YAML was not checked.
 
@@ -125,7 +125,8 @@ Fixing exit 1:
 - A syntax error points at a line. The value on it contains `: `, or starts with a symbol. Rewrite that value as a `|` block scalar and run the check again. Only the first error is reported, so repeat until the exit code is 0.
 - "is Hash, not a string" means a plain list item contained `: `, so YAML read it as a mapping instead of text. The load still succeeds, but the next session would misread the item. Rewrite the item starting with `- |`. When an item has to contain `: `, write it as `- |` from the start.
 - Change only the value when fixing. A replacement that touches the key's `:` breaks keys such as `why:`.
-- A load that succeeds can still lose text: everything from ` #` onward in a plain value, and a leading `&x` or `!x`, are dropped without an error. Use a block scalar when writing.
+- "read as a comment" means a plain value contained ` #` (for example `see issue #123`), so YAML dropped the rest of the line. The load succeeds, so only this check reports it. Rewrite the value as a `|` block scalar.
+- A leading `&x` or `!x` in a plain value is also dropped without an error, and the check does not detect it. Write such values as `|` block scalars from the start.
 
 The check covers the list keys `done`, `in_progress`, `next`, `open_questions`, `commands` and `user_instructions`. The keys `decisions`, `observations`, `failed` and `refs` hold mappings by design, so their items are not checked.
 

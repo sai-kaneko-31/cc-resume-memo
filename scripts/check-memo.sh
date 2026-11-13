@@ -6,7 +6,7 @@
 #
 # Exit codes
 #   0   loads as YAML, every list item is a string, no secret-like text found
-#   1   does not load as YAML, or a list item is not a string
+#   1   does not load as YAML, a list item is not a string, or text after a " #" was read as a comment
 #   2   secret-like text found (the output names the pattern and the line, not the value)
 #   3   neither ruby nor python3 with PyYAML is available: the YAML was NOT checked
 #   64  usage error
@@ -54,6 +54,25 @@ ruby_check() {
         bad << "#{k}[#{i}] is #{x.class}, not a string (write the item as `- |`)" unless x.is_a?(String)
       end
     end
+    # A " #" in a plain value starts a comment: the load succeeds and the rest
+    # of the line is dropped. Block scalars and quoted strings keep it, so a
+    # "#" preceded by whitespace that is in the file but not in the parsed
+    # strings was swallowed.
+    seen = []
+    walk = lambda do |o|
+      case o
+      when Hash then o.each { |k, v| walk.call(k); walk.call(v) }
+      when Array then o.each { |v| walk.call(v) }
+      when String then seen << o
+      end
+    end
+    walk.call(d)
+    hash_re = /(?:^|\s)#/
+    raw_n = File.read(ARGV[0], encoding: "UTF-8").scan(hash_re).size
+    kept_n = seen.join("\n").scan(hash_re).size
+    if raw_n > kept_n
+      bad << "#{raw_n - kept_n} of #{raw_n} \" #\" in the file were read as a comment: the text after them is missing from the parsed memo. Write those values as `|` block scalars"
+    end
     puts bad unless bad.empty?
     exit(bad.empty? ? 0 : 1)
   ' "$file" $list_keys 2>&1
@@ -62,7 +81,7 @@ ruby_check() {
 python_check() {
   # shellcheck disable=SC2086
   "$py" -c '
-import sys, yaml
+import re, sys, yaml
 try:
     with open(sys.argv[1], encoding="utf-8") as f:
         d = yaml.safe_load(f)
@@ -83,6 +102,28 @@ for k in sys.argv[2:]:
     for i, x in enumerate(v):
         if not isinstance(x, str):
             bad.append("%s[%d] is %s, not a string (write the item as `- |`)" % (k, i, type(x).__name__))
+# A " #" in a plain value starts a comment: the load succeeds and the rest of
+# the line is dropped. Block scalars and quoted strings keep it, so a "#"
+# preceded by whitespace that is in the file but not in the parsed strings was
+# swallowed.
+seen = []
+def walk(o):
+    if isinstance(o, dict):
+        for k, v in o.items():
+            walk(k)
+            walk(v)
+    elif isinstance(o, list):
+        for v in o:
+            walk(v)
+    elif isinstance(o, str):
+        seen.append(o)
+walk(d)
+hash_re = re.compile(r"(?:^|\s)#", re.M)
+with open(sys.argv[1], encoding="utf-8") as f:
+    raw_n = len(hash_re.findall(f.read()))
+kept_n = len(hash_re.findall("\n".join(seen)))
+if raw_n > kept_n:
+    bad.append("%d of %d \" #\" in the file were read as a comment: the text after them is missing from the parsed memo. Write those values as `|` block scalars" % (raw_n - kept_n, raw_n))
 if bad:
     print("\n".join(bad))
 sys.exit(1 if bad else 0)
