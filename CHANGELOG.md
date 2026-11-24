@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- `RESUME_MEMO_ISSUES_DIR`: the directory of the known-issues entries, for a directory the user already fills by hand. A leading `~/` is expanded, and `~name/` is refused with exit 64, as is `~` while HOME is empty. The default stays `known-issues/` inside the memo directory.
+- `known-issue.sh search <word>...` prints the lines that contain any of the words, ignoring the case of ASCII letters, from the `.md` files under that directory. Notes written by hand are searched too, and at most 20 lines are printed. The skill uses it to look a cause up before it adds an entry. `known-issue.sh dir` prints the directory.
+- The skill records known issues without writing a memo when the user asks to record them.
+
+### Changed
+
+- The log covers the failures of the whole session, not only the failures of the skill's own steps. A cause that is already written down in a note written by hand is reported to the user and not added again.
+- Only a file whose first line starts with `rule: ` is an entry. `list` skips other files, `recur` and `add` leave them unchanged, and the "more than 30 entries" note counts entries only.
+- A file that is not valid UTF-8, such as a note written by hand in another encoding, no longer hides lines from `search`, cuts a rule short in `list` or makes `recur` fail in a UTF-8 locale.
+- `recur` refuses a `count:` line of more than 15 digits (leading zeros not counted) with exit 64, because bash wraps a 19-digit count around to a negative number.
+- A symbolic link is not an entry: `list` skips it, and `add` and `recur` never write through or replace it. `search` exits 1 when it could not read part of the directory, so an empty output with exit 0 means that nothing matched in the files it searches. A file that contains a NUL byte, such as a note in UTF-16, is not searched. A new entry gets the file mode that the umask gives, and a repeat keeps the mode of the entry.
+
 ## [0.2.0] - 2026-11-24
 
 First tagged release. Earlier commits carried the version 0.1.0 in `plugin.json` but were never tagged, so everything below is new to a user who installs this release.

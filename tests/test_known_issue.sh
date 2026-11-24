@@ -2,6 +2,9 @@
 # Tests for scripts/known-issue.sh.
 set -u
 
+# The settings of the machine may export RESUME_MEMO_ISSUES_DIR. The tests must not write there.
+unset RESUME_MEMO_ISSUES_DIR
+
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 ki="$root/scripts/known-issue.sh"
 tmp=$(mktemp -d)
@@ -207,12 +210,14 @@ write_entry oct10 $'rule: a\ncount: 010\nlast_seen: 2026-11-01\ncase: c\nprevent
 run "" recur oct10 "n"
 file_has "recur: 010 becomes 11, not 9" "$issues/oct10.md" 'count: 11'
 
+# A file whose first line is not "rule: " is not an entry, even when it has a count line.
 write_entry count-first $'count: 3\nrule: a\ncase: c\nprevention: p\n'
+before_count_first=$(cksum "$issues/count-first.md")
 run "" recur count-first "n"
-if [ "$(head -n 1 "$issues/count-first.md")" = 'count: 4' ]; then report "recur: a count on line 1 is updated" 0; else report "recur: a count on line 1 is updated" 1 "$(head -n 1 "$issues/count-first.md")"; fi
-file_has "recur: the missing last_seen is added" "$issues/count-first.md" 'last_seen: 2026-11-24'
+expect_rc "recur: a file whose first line is a count line is not an entry (exit 5)" 5
+if [ "$(cksum "$issues/count-first.md")" = "$before_count_first" ]; then report "recur: that file is left byte-identical" 0; else report "recur: that file is left byte-identical" 1; fi
 run "" list
-has "list: the entry with the count on line 1 shows x4" "count-first x4"
+lacks "list: a file whose first line is a count line is not listed" "count-first"
 
 write_entry count-words $'rule: a\ncount: 3 times\nlast_seen: 2026-11-01\ncase: c\nprevention: p\n'
 run "" recur count-words "n"
@@ -222,9 +227,8 @@ file_has "recur: the number after the words is counted from 3" "$issues/count-wo
 
 : > "$issues/empty-entry.md"
 run "" recur empty-entry "n"
-expect_rc "recur: an empty file is counted" 0
-file_has "recur: an empty file gets a count" "$issues/empty-entry.md" 'count: 2'
-file_has "recur: an empty file gets last_seen" "$issues/empty-entry.md" 'last_seen: 2026-11-24'
+expect_rc "recur: an empty file is not an entry (exit 5)" 5
+if [ ! -s "$issues/empty-entry.md" ]; then report "recur: an empty file stays empty" 0; else report "recur: an empty file stays empty" 1; fi
 
 write_entry no-newline $'rule: a\ncount: 1\nlast_seen: 2026-11-01\ncase: c\nprevention: p'
 run "" recur no-newline "n"
@@ -332,6 +336,343 @@ mkdir -p "$tmp/empty-memos/known-issues"
 out=$(RESUME_MEMO_DIR="$tmp/empty-memos" TMPDIR="$tmp/no-such-tmp" bash "$ki" list 2>&1 </dev/null)
 rc=$?
 expect_rc "tmpdir: list needs no temporary directory for an empty known-issues directory" 0
+
+# --- a directory that also holds files the user wrote by hand (area files)
+# RESUME_MEMO_ISSUES_DIR points the log at a directory the user already fills: its files have no
+# "rule:" first line, and the script must neither list them, count them, nor change them.
+shared="$tmp/shared"
+mkdir -p "$shared"
+printf '# Known issues: sample（`~/git/sample`）の作業\n\nこのファイルは常時は読み込まれない。\n\n## 見出しの 1 件目\n\n事例: sample / 何か (2026-11-01)。内容。\n\n防止策: 確かめる。\n' > "$shared/sample.md"
+printf 'old archive text\n' > "$shared/_orig-20260101.md"
+before_sum=$(cksum "$shared/sample.md")
+run_shared() { # <stdin text> <args...>
+  local input="$1"
+  shift
+  out=$(printf '%s' "$input" | RESUME_MEMO_ISSUES_DIR="$shared" RESUME_MEMO_DIR="$tmp/unused-memos" RESUME_MEMO_TODAY=2026-11-24 bash "$ki" "$@" 2>&1)
+  rc=$?
+}
+
+run_shared "$entry" add shared-first
+expect_rc "shared dir: add writes into RESUME_MEMO_ISSUES_DIR" 0
+if [ -f "$shared/shared-first.md" ] && [ ! -e "$tmp/unused-memos" ]; then report "shared dir: the memo directory is not used" 0; else report "shared dir: the memo directory is not used" 1; fi
+run_shared "" list
+has "shared dir: list shows the entry" "shared-first x1"
+lacks "shared dir: list does not show the area file" "sample"
+lacks "shared dir: list does not show the archive file" "_orig"
+lacks "shared dir: list does not show a heading of an area file" "見出し"
+
+run_shared "" recur sample "n"
+expect_rc "shared dir: recur on an area file exits 5" 5
+has "shared dir: recur says it is not an entry" "not a known-issues entry"
+if [ "$(cksum "$shared/sample.md")" = "$before_sum" ]; then report "shared dir: a refused recur leaves the area file byte-identical" 0; else report "shared dir: a refused recur leaves the area file byte-identical" 1; fi
+
+run_shared "$entry" add sample
+expect_rc "shared dir: add with the name of an area file exits 4" 4
+has "shared dir: add says the file is not an entry" "not a known-issues entry"
+lacks "shared dir: add does not suggest recur for an area file" "known-issue.sh recur"
+if [ "$(cksum "$shared/sample.md")" = "$before_sum" ]; then report "shared dir: a refused add leaves the area file byte-identical" 0; else report "shared dir: a refused add leaves the area file byte-identical" 1; fi
+
+# --- the "too many entries" note counts entries only
+many="$tmp/many"
+mkdir -p "$many"
+for i in $(seq 1 40); do printf '# area %s\n\n## x\n' "$i" > "$many/area-$i.md"; done
+for i in $(seq 1 31); do
+  out=$(printf '%s' "$entry" | RESUME_MEMO_ISSUES_DIR="$many" bash "$ki" add "entry-$i" 2>&1)
+  if [ "$i" -eq 30 ]; then
+    if printf '%s' "$out" | grep -q '^Note:'; then report "note: 30 entries and 40 area files give no note" 1; else report "note: 30 entries and 40 area files give no note" 0; fi
+  fi
+  if [ "$i" -eq 31 ]; then
+    if printf '%s' "$out" | grep -q '^Note: 31 known issues'; then report "note: the 31st entry gives a note that counts 31" 0; else report "note: the 31st entry gives a note that counts 31" 1 "$out"; fi
+  fi
+done
+
+# --- search: find a cause in every file of the directory before adding an entry
+run_shared "" search "何か"
+has "search: finds a line of an area file" "sample.md"
+run_shared "" search "plain value"
+has "search: finds a line of an entry" "shared-first.md"
+run_shared "" search "NO-SUCH-WORD"
+expect_rc "search: no match exits 0" 0
+if [ -z "$out" ]; then report "search: no match prints nothing" 0; else report "search: no match prints nothing" 1 "$out"; fi
+run_shared "" search "PLAIN VALUE"
+has "search: ignores case" "shared-first.md"
+run_shared "" search "-h"
+expect_rc "search: a term that starts with a dash is a term" 0
+run_shared "" search
+expect_rc "search: no term exits 64" 64
+printf 'secret leftover plain value\n' > "$shared/.new.ABC123"
+run_shared "" search "leftover"
+if [ -z "$out" ]; then report "search: ignores a leftover .new file" 0; else report "search: ignores a leftover .new file" 1 "$out"; fi
+printf '%s\n' "line plain value" > "$shared/many-hits.md"
+for i in $(seq 1 30); do printf 'plain value %s\n' "$i" >> "$shared/many-hits.md"; done
+run_shared "" search "plain value"
+has "search: more than 20 matches end with a remainder line" "more matching lines"
+mkdir -p "$tmp/nodir"
+out=$(RESUME_MEMO_ISSUES_DIR="$tmp/nodir/missing" bash "$ki" search "x" 2>&1 </dev/null)
+rc=$?
+expect_rc "search: a missing directory exits 0" 0
+
+# --- dir: where the entries go, with a leading ~/ expanded
+run_shared "" dir
+if [ "$out" = "$shared" ]; then report "dir: prints RESUME_MEMO_ISSUES_DIR" 0; else report "dir: prints RESUME_MEMO_ISSUES_DIR" 1 "$out"; fi
+# shellcheck disable=SC2088  # a literal "~/" is the input under test
+out=$(cd "$tmp" && RESUME_MEMO_ISSUES_DIR='~/ki-home' HOME="$tmp/home" bash "$ki" dir 2>&1 </dev/null)
+if [ "$out" = "$tmp/home/ki-home" ]; then report "dir: a leading ~/ is expanded with HOME" 0; else report "dir: a leading ~/ is expanded with HOME" 1 "$out"; fi
+out=$(RESUME_MEMO_ISSUES_DIR='' RESUME_MEMO_DIR="$tmp/memo-x" bash "$ki" dir 2>&1 </dev/null)
+if [ "$out" = "$tmp/memo-x/known-issues" ]; then report "dir: an empty RESUME_MEMO_ISSUES_DIR falls back to the memo directory" 0; else report "dir: an empty RESUME_MEMO_ISSUES_DIR falls back to the memo directory" 1 "$out"; fi
+out=$(RESUME_MEMO_DIR="$tmp/memo-y" bash "$ki" dir 2>&1 </dev/null)
+if [ "$out" = "$tmp/memo-y/known-issues" ]; then report "dir: the default is known-issues inside the memo directory" 0; else report "dir: the default is known-issues inside the memo directory" 1 "$out"; fi
+# shellcheck disable=SC2088  # a literal "~/" is the input under test
+out=$(cd "$tmp" && RESUME_MEMO_ISSUES_DIR='~/ki-home' HOME="$tmp/home" bash -c 'printf "%s" "$1" | bash "$2" add tilde-entry' _ "$entry" "$ki" 2>&1)
+if [ -f "$tmp/home/ki-home/tilde-entry.md" ]; then report "dir: add writes under the expanded ~/ directory" 0; else report "dir: add writes under the expanded ~/ directory" 1 "$out"; fi
+
+# --- search needs no temporary directory, so an empty result means that nothing matched
+TMPDIR="$tmp/no-such-tmp" run_shared "" search "block scalar"
+expect_rc "search: works when TMPDIR does not exist" 0
+has "search: still prints the matches when TMPDIR does not exist" "shared-first.md"
+
+# --- search lists one more line than the cap only as a remainder, and keeps paths clean
+run_shared "" search "plain value"
+if [ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" -eq 21 ]; then report "search: prints 20 lines and one remainder line" 0; else report "search: prints 20 lines and one remainder line" 1 "$(printf '%s\n' "$out" | wc -l)"; fi
+out=$(RESUME_MEMO_ISSUES_DIR="$shared/" bash "$ki" search "plain value" 2>&1 </dev/null)
+if printf '%s' "$out" | grep -q '//'; then report "search: a trailing slash in the setting does not double up in the paths" 1 "$out"; else report "search: a trailing slash in the setting does not double up in the paths" 0; fi
+out=$(RESUME_MEMO_ISSUES_DIR="$shared//" bash "$ki" dir 2>&1 </dev/null)
+if [ "$out" = "$shared" ]; then report "dir: trailing slashes are dropped" 0; else report "dir: trailing slashes are dropped" 1 "$out"; fi
+
+# --- a directory that is a symbolic link (BSD "grep -r" does not enter one that is given as it is)
+real="$tmp/real-issues"
+mkdir -p "$real"
+printf '%s' "$entry" | RESUME_MEMO_ISSUES_DIR="$real" bash "$ki" add linked-entry > /dev/null 2>&1
+ln -s "$real" "$tmp/link-issues"
+run_link() { # <stdin text> <args...>
+  local input="$1"
+  shift
+  out=$(printf '%s' "$input" | RESUME_MEMO_ISSUES_DIR="$tmp/link-issues" RESUME_MEMO_TODAY=2026-11-24 bash "$ki" "$@" 2>&1)
+  rc=$?
+}
+run_link "" search "plain value"
+has "symlinked dir: search finds the entry" "linked-entry.md"
+run_link "" list
+has "symlinked dir: list shows the entry" "linked-entry x1"
+run_link "$entry" add linked-second
+if [ -f "$real/linked-second.md" ]; then report "symlinked dir: add writes into the directory it points to" 0; else report "symlinked dir: add writes into the directory it points to" 1 "$out"; fi
+run_link "" recur linked-entry "again"
+expect_rc "symlinked dir: recur counts a repeat" 0
+
+# --- a symbolic link in place of an entry file is never written through or replaced
+syml="$tmp/syml"
+mkdir -p "$syml"
+ln -s "$tmp/nowhere.md" "$syml/dangling.md"
+out=$(printf '%s' "$entry" | RESUME_MEMO_ISSUES_DIR="$syml" bash "$ki" add dangling 2>&1)
+rc=$?
+expect_rc "symlink: add over a broken link exits 4" 4
+has "symlink: add says it is a symbolic link" "symbolic link"
+if [ -L "$syml/dangling.md" ] && [ ! -e "$tmp/nowhere.md" ]; then report "symlink: a refused add leaves the broken link as it was" 0; else report "symlink: a refused add leaves the broken link as it was" 1; fi
+printf 'rule: kept\ncase: c\nprevention: p\ncount: 1\nfirst_seen: 2026-01-01\nlast_seen: 2026-01-01\n' > "$tmp/elsewhere.md"
+ln -s "$tmp/elsewhere.md" "$syml/pointing.md"
+link_sum=$(cksum "$tmp/elsewhere.md")
+out=$(RESUME_MEMO_ISSUES_DIR="$syml" bash "$ki" recur pointing "again" 2>&1 </dev/null)
+rc=$?
+expect_rc "symlink: recur on a link to an entry exits 5" 5
+if [ -L "$syml/pointing.md" ] && [ "$(cksum "$tmp/elsewhere.md")" = "$link_sum" ]; then report "symlink: a refused recur leaves the link and its target as they were" 0; else report "symlink: a refused recur leaves the link and its target as they were" 1; fi
+out=$(RESUME_MEMO_ISSUES_DIR="$syml" bash "$ki" recur dangling "again" 2>&1 </dev/null)
+rc=$?
+expect_rc "symlink: recur on a broken link exits 5" 5
+
+# --- other shapes of file in the directory
+odd="$tmp/odd"
+mkdir -p "$odd/folder.md"
+printf 'rule: inside a folder named like a note\ncase: c\nprevention: p\n' > "$odd/folder.md/inner.md"
+printf 'rule: crlf rule\r\ncase: c\r\nprevention: p\r\ncount: 2\r\nfirst_seen: 2026-01-01\r\nlast_seen: 2026-01-02\r\n' > "$odd/crlf-entry.md"
+printf '\357\273\277rule: bom rule\ncase: c\nprevention: p\n' > "$odd/bom.md"
+printf 'plain value\0binary\n' > "$odd/binary.md"
+run_odd() { # <stdin text> <args...>
+  local input="$1"
+  shift
+  out=$(printf '%s' "$input" | RESUME_MEMO_ISSUES_DIR="$odd" RESUME_MEMO_TODAY=2026-11-24 bash "$ki" "$@" 2>&1)
+  rc=$?
+}
+run_odd "" list
+expect_rc "odd files: list exits 0 with a folder named *.md in the directory" 0
+has "odd files: list shows the entry with CRLF line ends, with its count and date" "crlf-entry x2 2026-01-02: crlf rule"
+if printf '%s' "$out" | grep -q "$(printf '\r')"; then report "odd files: list prints no carriage return" 1; else report "odd files: list prints no carriage return" 0; fi
+lacks "odd files: list skips a folder named *.md" "folder"
+lacks "odd files: list skips a file that starts with a byte order mark" "bom"
+run_odd "" recur crlf-entry "again"
+expect_rc "odd files: recur counts an entry with CRLF line ends" 0
+has "odd files: the count goes from 2 to 3" "count 3"
+run_odd "$entry" add folder
+expect_rc "odd files: add over a folder named like a note exits 4" 4
+run_odd "$entry" add bom
+expect_rc "odd files: add over a file that starts with a byte order mark exits 4 (it is not an entry)" 4
+has "odd files: the message says it is not an entry" "not a known-issues entry"
+run_odd "" recur bom "again"
+expect_rc "odd files: recur on a file that starts with a byte order mark exits 5" 5
+run_odd "" search "plain value"
+lacks "odd files: search skips a binary file" "binary.md"
+run_odd "" search "inside a folder"
+has "odd files: search reads a note in a subdirectory" "inner.md"
+
+# --- ~name is not expanded, and must not create a directory named "~name"
+cwd="$tmp/cwd-tilde"
+mkdir -p "$cwd"
+for cmd in list dir search; do
+  # shellcheck disable=SC2088  # a literal "~bob" is the input under test
+  out=$(cd "$cwd" && RESUME_MEMO_ISSUES_DIR='~bob/x' bash "$ki" "$cmd" word 2>&1 </dev/null)
+  rc=$?
+  expect_rc "tilde user: $cmd exits 64" 64
+done
+has "tilde user: the message says what to write instead" "full path"
+# shellcheck disable=SC2088  # a literal "~bob" is the input under test
+out=$(cd "$cwd" && printf '%s' "$entry" | RESUME_MEMO_ISSUES_DIR='~bob/x' bash "$ki" add tilde-user 2>&1)
+rc=$?
+expect_rc "tilde user: add exits 64" 64
+if [ -z "$(ls -A "$cwd")" ]; then report "tilde user: no directory is created in the working directory" 0; else report "tilde user: no directory is created in the working directory" 1 "$(ls -A "$cwd")"; fi
+
+# --- the file mode follows the umask, and a repeat keeps the mode of the entry
+mode_of() { stat -c %a "$1" 2> /dev/null || stat -f %Lp "$1"; }
+modes="$tmp/modes"
+mkdir -p "$modes"
+(umask 022; printf '%s' "$entry" | RESUME_MEMO_ISSUES_DIR="$modes" bash "$ki" add mode-022 > /dev/null 2>&1)
+(umask 077; printf '%s' "$entry" | RESUME_MEMO_ISSUES_DIR="$modes" bash "$ki" add mode-077 > /dev/null 2>&1)
+if [ "$(mode_of "$modes/mode-022.md")" = "644" ]; then report "mode: umask 022 gives 644" 0; else report "mode: umask 022 gives 644" 1 "$(mode_of "$modes/mode-022.md")"; fi
+if [ "$(mode_of "$modes/mode-077.md")" = "600" ]; then report "mode: umask 077 gives 600" 0; else report "mode: umask 077 gives 600" 1 "$(mode_of "$modes/mode-077.md")"; fi
+chmod 640 "$modes/mode-022.md"
+(umask 077; RESUME_MEMO_ISSUES_DIR="$modes" bash "$ki" recur mode-022 "again" > /dev/null 2>&1 </dev/null)
+if [ "$(mode_of "$modes/mode-022.md")" = "640" ]; then report "mode: a repeat keeps the mode of the entry" 0; else report "mode: a repeat keeps the mode of the entry" 1 "$(mode_of "$modes/mode-022.md")"; fi
+
+# --- search keeps the lines after a line that is not valid UTF-8
+# In a UTF-8 locale tr, sed, cut and awk stop at such a byte: search dropped that line and the rest
+# with exit 0, list cut the rule short, and recur failed. A skipped test is printed and not counted.
+skip() { echo "skip $1"; }
+utf8=""
+for cand in en_US.UTF-8 C.UTF-8 ja_JP.UTF-8; do
+  if locale -a 2> /dev/null | grep -qix "$cand"; then utf8=$cand; break; fi
+done
+[ -n "$utf8" ] || utf8=$(locale -a 2> /dev/null | grep -i -m 1 'utf-\{0,1\}8')
+if [ -n "$utf8" ] && [ "$(LC_ALL="$utf8" locale charmap 2> /dev/null)" != "UTF-8" ]; then utf8=""; fi
+bad="$tmp/bad-bytes"
+mkdir -p "$bad"
+printf 'foo \377\376 bar\nfoo second\n' > "$bad/n.md"
+if [ -n "$utf8" ]; then
+  out=$(LC_ALL="$utf8" RESUME_MEMO_ISSUES_DIR="$bad" bash "$ki" search foo 2>&1 </dev/null)
+  rc=$?
+  expect_rc "search: a line that is not valid UTF-8 exits 0 in a UTF-8 locale" 0
+  has "search: the line after a line that is not valid UTF-8 is still printed" "foo second"
+  lacks "search: no filter complains about the bad byte" "Illegal byte"
+  # grep itself, in a UTF-8 locale, did not match a word that comes after a bad byte on the same line.
+  out=$(LC_ALL="$utf8" RESUME_MEMO_ISSUES_DIR="$bad" bash "$ki" search bar 2>&1 </dev/null)
+  has "search: a word after a bad byte on the same line is found" "n.md:1:"
+  printf 'caf\351 latin1 needle\nneedle2\n' > "$bad/latin.md"
+  out=$(LC_ALL="$utf8" RESUME_MEMO_ISSUES_DIR="$bad" bash "$ki" search needle 2>&1 </dev/null)
+  has "search: a Latin-1 line that holds the word is found" "latin.md:1:"
+  has "search: the next line of that file is found too" "latin.md:2:needle2"
+
+  badent="$tmp/bad-entries"
+  mkdir -p "$badent"
+  printf 'rule: abc \377 def\ncase: c\nprevention: p\ncount: 2\nfirst_seen: 2026-01-01\nlast_seen: 2026-01-02\n' > "$badent/mid.md"
+  printf 'rule: \377abc\ncase: c\nprevention: p\ncount: 3\n' > "$badent/first.md"
+  printf '\377ule: not an entry\ncase: c\nprevention: p\n' > "$badent/notentry.md"
+  out=$(LC_ALL="$utf8" RESUME_MEMO_ISSUES_DIR="$badent" bash "$ki" list 2>&1 </dev/null)
+  rc=$?
+  expect_rc "bad bytes: list exits 0" 0
+  has "bad bytes: list keeps the text after a bad byte in the rule" " def"
+  has "bad bytes: list keeps the text after a bad byte at the start of the rule" "abc"
+  has "bad bytes: list reads the count and date of an entry whose rule has a bad byte" "mid x2 2026-01-02"
+  lacks "bad bytes: list does not show a file whose first line only looks like a rule" "notentry"
+  lacks "bad bytes: no filter of list complains" "Illegal byte"
+  out=$(LC_ALL="$utf8" RESUME_MEMO_ISSUES_DIR="$badent" RESUME_MEMO_TODAY=2026-11-24 bash "$ki" recur mid "again" 2>&1 </dev/null)
+  rc=$?
+  expect_rc "bad bytes: recur counts an entry whose rule has a bad byte" 0
+  has "bad bytes: the count goes from 2 to 3" "count 3"
+
+  # The cap of list is 200 characters, not 200 bytes: a valid UTF-8 rule of 150 characters is shown whole.
+  jp="$tmp/jp-entries"
+  mkdir -p "$jp"
+  long=$(LC_ALL="$utf8" bash -c 'printf "あ%.0s" $(seq 1 149)')終
+  printf 'rule: %s\ncase: c\nprevention: p\n' "$long" > "$jp/long.md"
+  out=$(LC_ALL="$utf8" RESUME_MEMO_ISSUES_DIR="$jp" bash "$ki" list 2>&1 </dev/null)
+  has "list: a rule of 150 characters in UTF-8 is not cut at 200 bytes" "終"
+else
+  skip "no UTF-8 locale on this machine: the tests of search, list and recur with a bad byte"
+fi
+
+# --- search says so when it could not read part of the directory (an empty output is then not "no match")
+unread="$tmp/unreadable"
+mkdir -p "$unread/sub"
+printf 'foo in a note\n' > "$unread/sub/n.md"
+printf 'foo in the top note\n' > "$unread/top.md"
+if [ "$(id -u)" -ne 0 ]; then
+  chmod 000 "$unread/sub"
+  out=$(RESUME_MEMO_ISSUES_DIR="$unread" bash "$ki" search foo 2>&1 </dev/null)
+  rc=$?
+  chmod 755 "$unread/sub"
+  expect_rc "search: an unreadable subdirectory exits 1" 1
+  has "search: the message says the result may be incomplete" "incomplete"
+  has "search: the matches that could be read are still printed" "top.md"
+else
+  skip "running as root: the unreadable-directory test of search"
+fi
+
+# --- a symbolic link is not an entry: list does not show it, because search cannot find it
+lnk="$tmp/lnk-entries"
+mkdir -p "$lnk"
+printf 'rule: real rule\ncase: c\nprevention: p\n' > "$lnk/real.md"
+ln -s real.md "$lnk/alias.md"
+out=$(RESUME_MEMO_ISSUES_DIR="$lnk" bash "$ki" list 2>&1 </dev/null)
+has "symlink: list shows the file the link points to" "real x1"
+lacks "symlink: list does not show the link" "alias"
+
+# --- HOME: ~ needs it, and a trailing slash of HOME does not double up
+# shellcheck disable=SC2088  # a literal "~" is the input under test
+out=$(HOME='' RESUME_MEMO_ISSUES_DIR='~/x' bash "$ki" dir 2>&1 </dev/null)
+rc=$?
+expect_rc "home: ~/x with an empty HOME exits 64" 64
+has "home: the message names HOME" "HOME"
+# shellcheck disable=SC2088  # a literal "~" is the input under test
+out=$(env -u HOME RESUME_MEMO_ISSUES_DIR='~/x' bash "$ki" dir 2>&1 </dev/null)
+rc=$?
+expect_rc "home: ~/x with HOME unset exits 64" 64
+# shellcheck disable=SC2088  # a literal "~" is the input under test
+out=$(HOME=/tmp/h/ RESUME_MEMO_ISSUES_DIR='~/x' bash "$ki" dir 2>&1 </dev/null)
+if [ "$out" = "/tmp/h/x" ]; then report "home: a trailing slash of HOME does not double up" 0; else report "home: a trailing slash of HOME does not double up" 1 "$out"; fi
+# shellcheck disable=SC2088  # a literal "~" is the input under test
+out=$(HOME=/ RESUME_MEMO_ISSUES_DIR='~/x' bash "$ki" dir 2>&1 </dev/null)
+if [ "$out" = "/x" ]; then report "home: HOME=/ gives /x" 0; else report "home: HOME=/ gives /x" 1 "$out"; fi
+# shellcheck disable=SC2088  # a literal "~" is the input under test
+out=$(HOME=/ RESUME_MEMO_ISSUES_DIR='~' bash "$ki" dir 2>&1 </dev/null)
+if [ "$out" = "/" ]; then report "home: ~ with HOME=/ gives /" 0; else report "home: ~ with HOME=/ gives /" 1 "$out"; fi
+
+# --- a count that would wrap around is refused, not written as a negative number
+big="$tmp/big-count"
+mkdir -p "$big"
+printf 'rule: big\ncase: c\nprevention: p\ncount: 9223372036854775807\n' > "$big/big.md"
+printf 'rule: edge\ncase: c\nprevention: p\ncount: 999999999999999\n' > "$big/edge.md"
+big_sum=$(cksum "$big/big.md")
+out=$(RESUME_MEMO_ISSUES_DIR="$big" bash "$ki" recur big "again" 2>&1 </dev/null)
+rc=$?
+expect_rc "count: a count of 19 digits is refused with exit 64" 64
+if [ "$(cksum "$big/big.md")" = "$big_sum" ]; then report "count: a refused recur leaves the file as it was" 0; else report "count: a refused recur leaves the file as it was" 1; fi
+out=$(RESUME_MEMO_ISSUES_DIR="$big" bash "$ki" recur edge "again" 2>&1 </dev/null)
+rc=$?
+expect_rc "count: a count of 15 digits is still counted" 0
+has "count: 15 digits plus one is 1000000000000000" "count 1000000000000000"
+printf 'rule: zeros\ncase: c\nprevention: p\ncount: 0000000000000000001\n' > "$big/zeros.md"
+out=$(RESUME_MEMO_ISSUES_DIR="$big" bash "$ki" recur zeros "again" 2>&1 </dev/null)
+rc=$?
+expect_rc "count: leading zeros do not make a small count too long" 0
+has "count: 0000000000000000001 plus one is 2" "count 2"
+
+# --- search folds the case of ASCII letters only (grep runs in the C locale), as the docs say
+fold="$tmp/fold"
+mkdir -p "$fold"
+printf 'Caf\303\211 ASCII Word\n' > "$fold/e.md"
+out=$(RESUME_MEMO_ISSUES_DIR="$fold" bash "$ki" search "ascii word" 2>&1 </dev/null)
+has "search: an ASCII word matches whatever its case" "e.md:1:"
+out=$(RESUME_MEMO_ISSUES_DIR="$fold" bash "$ki" search "café" 2>&1 </dev/null)
+if [ -z "$out" ]; then report "search: a non-ASCII letter is not case-folded (documented)" 0; else report "search: a non-ASCII letter is not case-folded (documented)" 1 "$out"; fi
+out=$(RESUME_MEMO_ISSUES_DIR="$fold" bash "$ki" search "CafÉ" 2>&1 </dev/null)
+has "search: the same letters in the same case match" "e.md:1:"
 
 # --- usage
 run "" nonsense

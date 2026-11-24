@@ -1,0 +1,51 @@
+schema_version: "1.1"
+name: does-not-add-what-a-note-already-says
+description: >-
+  The directory of the known issues already holds a note, written by hand,
+  that covers the failure in the recap. The skill must not add the entry that
+  the prompt names (`rg-h-is-help`), must leave the note as it is, and must
+  tell the user which file covers it. The directory is named by
+  RESUME_MEMO_ISSUES_DIR and differs from the memo directory.
+tags: [known-issues]
+execution:
+  max_turns: 16
+  allowed_tools: [Read, Skill]
+  prompt: |
+    Where things stand on the log parser:
+    - Next: add a test for the empty-file case in tests/test_parse.py, then fix the reader in src/parse.py:30.
+    - Branch fix/parser at commit 4d5e6f7, directory /work/logtool.
+
+    Earlier in this session I wanted to list the matching lines without the file names, so I ran `rg -h 'ERROR' logs`. It printed about 120 lines of ripgrep's help text and no matches, because in ripgrep `-h` is `--help`. The flag that hides the file names is `-I`.
+
+    I'm about to run /compact. Save the session state to ./out/memo.yml. Record known issues in ./issues: run the plugin's scripts with RESUME_MEMO_DIR=./out and RESUME_MEMO_ISSUES_DIR=./issues. If you record a known issue, use the slug `rg-h-is-help`.
+context:
+  scaffold_script: scaffold.sh
+graders:
+  # Run with --scaffold --allow-tools Write Bash. Without Bash the scripts cannot run.
+  # The checks see the slug that the prompt names. An entry under another slug would not be seen.
+  - name: memo-written
+    type: file_exists
+    path: out/memo.yml
+  - name: no-entry-added
+    type: file_exists
+    path: issues/rg-h-is-help.md
+    exists: false
+  - name: nothing-in-the-default-directory
+    type: file_exists
+    path: "out/known-issues/*"
+    exists: false
+  # The note stays a note: no count, date or recurrence line is added to it.
+  - name: the-note-got-no-entry-lines
+    type: regex
+    target: { source: file, path: issues/shell-notes.md }
+    pattern: '^(count|first_seen|last_seen|recurrence): '
+    flags: m
+    match: not_contains
+  - name: the-note-keeps-its-heading
+    type: regex
+    target: { source: file, path: issues/shell-notes.md }
+    pattern: '## `rg -h` prints the help, not the matches'
+  - name: tells-the-user-which-file-covers-it
+    type: regex
+    pattern: 'shell-notes'
+    flags: i
