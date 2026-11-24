@@ -23,8 +23,10 @@
 # directory (subdirectories too, and not a symbolic link inside it) that contains
 # one of the words, ignoring case.
 # It prints at most 20 lines and then "(+N more matching lines)", and nothing when
-# no line matches. It exits 0 when it read everything, so an empty output with
-# exit 0 means that nothing matched, and 1 when part of the directory was not readable.
+# no line matches. It skips a file that contains a NUL byte (grep -I), such as a
+# note in UTF-16. It exits 0 when it read everything it searches, so an empty
+# output with exit 0 means that nothing matched in those files, and 1 when part of
+# the directory was not readable.
 #
 # Locale: the filters that read a file run in the C locale, so a file that is not
 # valid UTF-8 is read like any other. The caps count characters in a UTF-8 locale and

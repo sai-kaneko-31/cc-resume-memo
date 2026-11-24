@@ -82,7 +82,7 @@ Plugin arm only (`--ablation none`, three runs each, Claude Code 2.1.331). The c
 
 ## The three session-wide cases
 
-Plugin arm only (`--ablation none`, three runs each, Claude Code 2.1.331), run on the skill of the last commit before the pull request. The control for the first two is the skill of 0.2.0, run from a detached worktree of `origin/main` with only these case files copied in. `--case` takes one glob, and a second `--case` replaces the first, so each case needs its own run.
+Plugin arm only (`--ablation none`, three runs each, Claude Code 2.1.331), run on the final text of `SKILL.md` of this change. The control for the first two is the skill of 0.2.0, run from a detached worktree of `origin/main` with only these case files copied in. `--case` takes one glob, and a second `--case` replaces the first, so each case needs its own run.
 
 | Case | With the change | Control |
 | :- | :- | :- |
@@ -94,9 +94,9 @@ Plugin arm only (`--ablation none`, three runs each, Claude Code 2.1.331), run o
 - `does-not-add-what-a-note-already-says`: the skill of 0.2.0 records no failure of the session, so it adds nothing and the checks on the entry pass. Only the check on the final message separates it (two of three runs fail it). A second control, the new skill with the `search` step and the "note written by hand" bullet removed, also scored 1.00: Claude listed the directory with `ls`, saw `shell-notes.md` and reported it. So this case shows that the note is reported, not that the `search` step is needed.
 - `does-not-record-a-one-off-fix`: not run on the old skill, because the old skill records no failure of the session and would pass whatever. The grader on `issues/*` was checked once with a throwaway case that asked for a record: it failed as it should, so the glob is expanded.
 - `does-not-add-what-a-note-already-says` first scored 0.94: in one of three runs the memo was written to `out/<timestamp>-<project>-<task-slug>.yml`, the skill's default name, and not to the `./out/memo.yml` that the prompt names, so `memo-written` failed. The entry checks and the final message were as in the other runs. A second batch on the same commit scored 1.00 (three of three). One miss in six runs is a small sample; the case does not say whether it is chance.
-- The calls of `known-issue.sh` in the traces of the last commit, counted from the Bash commands: `list`, `search` and `add` in each of the three runs of the first case; `list` and `search` and no `add` in each of the six runs of the second; `list` alone in each of the three runs of the third. The final message was read in one run of the second case (it names the note) and one run of the third (it says that nothing qualified).
+- The calls of `known-issue.sh` in the traces of those runs, counted from the Bash commands: `list`, `search` and `add` in each of the three runs of the first case; `list` and `search` and no `add` in each of the six runs of the second; `list` alone in each of the three runs of the third. The final message was read in one run of the second case (it names the note) and one run of the third (it says that nothing qualified).
 - The memo directory (`./out`) and the issues directory (`./issues`) differ, so a run that ignores `RESUME_MEMO_ISSUES_DIR` fails the checks. Each run cost about $0.18.
-- The five older cases that the change could affect were run again on the last commit, plugin arm only: `does-not-run-on-discussion`, `does-not-run-on-should-i-compact`, `does-not-run-on-what-does-it-do`, `records-a-known-issue` and `counts-a-repeat-instead-of-a-new-entry`. All scored 1.00. The eight cases cost $3.70 at list price in all, with the second batch of the case above included.
+- The five older cases that the change could affect were run again on the same skill text, plugin arm only: `does-not-run-on-discussion`, `does-not-run-on-should-i-compact`, `does-not-run-on-what-does-it-do`, `records-a-known-issue` and `counts-a-repeat-instead-of-a-new-entry`. All scored 1.00. The eight cases cost $3.70 at list price in all, with the second batch of the case above included.
 
 ## Notes on the graders
 
