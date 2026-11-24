@@ -175,7 +175,7 @@ When the user pastes a path, read that memo. Otherwise take the newest open memo
 
 Read the memo only. Its archive (`<dir>/done/<same file name>`) holds finished work, which the next session does not need to continue. Open it only when the user asks what was done, when a `next` item points at finished work, or when you add items to it. A memo written before the archive existed keeps `done:` inline and restores the same way. When you update such a memo, move its `done` items to the archive.
 
-Run the known-issues `list` command before relying on a memo ("Known issues"). If the memo misled you, record that failure there once the work is resumed.
+Run the known-issues `list` command before relying on a memo ("Known issues"). If the memo misled you, record that failure there as soon as you see it. Then tell the user the slug. When its count is 2 or more, say that it is a candidate to move into their CLAUDE.md or into this skill's text.
 
 Before relying on a memo:
 
@@ -202,13 +202,13 @@ A memo is the state of one session. A known issue is what to do differently the 
 
 Reading: run the `list` command before step 1 of a save, and before relying on a memo in a restore. It prints one entry per line, `<slug> x<count> <last_seen>: <rule>`, the most repeated first. At most 20 entries are printed, and when there are more, a last line `(+N more: ls <dir>)` says so. Nothing is printed when there is no entry. If `list` exits 1, it could not make a temporary directory. Set TMPDIR to a writable directory and run it again, and do not read that empty output as "no known issues". Apply a rule when it touches the step you are on. Open the entry's file only when the rule line is not enough.
 
-Recording (step 4 of a save, or at the end of a restore): record a failure when all three of these hold.
+Recording (step 4 of a save, or as soon as a restore finds that the memo misled you): record a failure when all three of these hold.
 
 - A step of this skill failed or had to be redone. For example, the check exited 1 or 2, the user said the memo was wrong or stale, or a restore was misled by a memo.
-- It can happen again.
+- It has a general cause, so it can happen again. A mistyped path does not.
 - You can say in one step what to do differently.
 
-Do not record a slip that has no general cause, such as a mistyped path. Then do one of these:
+When all three hold, do one of these:
 
 - The cause is the same as a listed entry: run `"${CLAUDE_PLUGIN_ROOT}/scripts/known-issue.sh" recur <slug> "<one line: what happened this time>"`.
 - No listed entry has this cause: run `"${CLAUDE_PLUGIN_ROOT}/scripts/known-issue.sh" add <slug>` with the entry on stdin, in a quoted heredoc (`<<'EOF'`):
@@ -221,7 +221,7 @@ prevention: <the step to do differently>
 
 The slug starts with a lowercase letter or digit, then has lowercase letters, digits and hyphens, at most 64 characters in all. An example is `colon-in-plain-item`. The script adds the `count`, `first_seen` and `last_seen` lines. Exit codes of `add` and `recur`:
 
-- 0: done.
+- 0: done. A line that starts with `Note:` after `add` means there are more than 30 entries. Tell the user, as the line says. Do not delete entries yourself.
 - 1: nothing was saved. The script could not make a temporary directory (set TMPDIR to a writable directory), could not write the entry (check the memo directory), or could not run the secret scan. The message says which. Fix that and run it again. Do not drop the record without telling the user.
 - 2: secret-like text was found and nothing was written. Keep the variable name and drop the value. The scan also refuses a phrase that only looks like an assignment, such as `secret: environment-variable-values`: reword it and run it again.
 - 4: `add` found an entry with this slug. If the cause is the same, use `recur`. If it is different, choose another slug.

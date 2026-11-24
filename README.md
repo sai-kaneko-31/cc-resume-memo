@@ -57,7 +57,7 @@ The skill keeps a small log of its own failures, so the next run does not repeat
 
 - One file per failure: `~/.claude/resume-memos/known-issues/<slug>.md`. A file has a one-line `rule:`, a `case:` and a `prevention:`, plus `count`, `first_seen` and `last_seen`. A repeat of the same cause adds to the count and appends a `recurrence:` line instead of creating a second file.
 - Before writing a memo, and before relying on one in a restore, the skill runs `scripts/known-issue.sh list`. It prints one line per entry, the most repeated first, at most 20 entries and then a `(+N more ...)` line, and nothing when there are no entries. The skill opens an entry's file only when the rule line is not enough.
-- After a run in which a step failed or had to be redone, and the cause can happen again, the skill records it. A failure that the next command caught is not recorded.
+- After a run in which a step failed or had to be redone, and the cause can happen again, the skill records it. A slip with no general cause, such as a mistyped path, is not recorded.
 - Only failures of this skill's own work (writing, checking, updating or restoring a memo) are recorded. This is not a log of everything that went wrong in a session. The entries live only under the memo directory, even when a memo is saved to a path you named.
 - Entries are scanned for secret-like text before they are written, with the same patterns as the memo check. It is a safety net, not a guarantee. When an entry has been moved into your `CLAUDE.md` or into the skill's text, delete its file.
 

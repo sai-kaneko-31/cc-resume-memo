@@ -238,6 +238,42 @@ expect_rc "recur: a blank note exits 64" 64
 run $'rule:   spaced out   \ncase: c\nprevention: p' add trimmed-rule
 if [ "$(head -n 1 "$issues/trimmed-rule.md")" = 'rule: spaced out' ]; then report "add: the rule is stored without surrounding blanks" 0; else report "add: the rule is stored without surrounding blanks" 1 "$(head -n 1 "$issues/trimmed-rule.md")"; fi
 
+# --- the final mv is a rename inside the entry directory
+# A fake mv logs its source, so the test can see where the new file was built: a source in another
+# directory (TMPDIR) would make mv copy across filesystems and leave a half-written entry on failure.
+mkdir -p "$tmp/fakebin"
+printf '#!/bin/bash\nprintf "%%s\\n" "$1" >> "$MV_LOG"\nexec /bin/mv "$@"\n' > "$tmp/fakebin/mv"
+chmod +x "$tmp/fakebin/mv"
+: > "$tmp/mv.log"
+out=$(printf '%s' "$entry" | PATH="$tmp/fakebin:$PATH" MV_LOG="$tmp/mv.log" RESUME_MEMO_DIR="$dir" bash "$ki" add same-dir-add 2>&1)
+rc=$?
+expect_rc "mv: add works with a logging mv in front" 0
+out=$(PATH="$tmp/fakebin:$PATH" MV_LOG="$tmp/mv.log" RESUME_MEMO_DIR="$dir" bash "$ki" recur same-dir-add "n" 2>&1 </dev/null)
+rc=$?
+expect_rc "mv: recur works with a logging mv in front" 0
+n_mv=$(wc -l < "$tmp/mv.log" | tr -d ' ')
+n_same=$(grep -c "^$issues/" "$tmp/mv.log")
+if [ "$n_mv" -eq 2 ] && [ "$n_same" -eq 2 ]; then report "mv: add and recur move a file built inside the entry directory" 0; else report "mv: add and recur move a file built inside the entry directory" 1 "$n_same of $n_mv sources are under $issues: $(cat "$tmp/mv.log")"; fi
+leftover=""
+for f in "$issues"/.new.*; do
+  [ -e "$f" ] && leftover="$leftover $f"
+done
+if [ -n "$leftover" ]; then report "mv: no temporary entry file is left behind" 1 "$leftover"; else report "mv: no temporary entry file is left behind" 0; fi
+
+# --- count and last_seen lines are read the same way by list and recur
+write_entry nospace $'rule: a\ncount:5\nlast_seen:2026-11-01\ncase: c\nprevention: p\n'
+run "" recur nospace "n"
+n_count=$(grep -c '^count:' "$issues/nospace.md")
+if [ "$n_count" -eq 1 ]; then report "recur: count:5 without a space stays one count line" 0; else report "recur: count:5 without a space stays one count line" 1 "$n_count lines"; fi
+file_has "recur: count:5 becomes 6" "$issues/nospace.md" 'count: 6'
+n_last=$(grep -c '^last_seen:' "$issues/nospace.md")
+if [ "$n_last" -eq 1 ]; then report "recur: last_seen without a space stays one line" 0; else report "recur: last_seen without a space stays one line" 1 "$n_last lines"; fi
+
+write_entry dup-count $'rule: a\ncount: many\ncount: 4\nlast_seen: 2026-11-01\ncase: c\nprevention: p\n'
+run "" recur dup-count "n"
+run "" list
+has "list: with two count lines, list and recur agree on the first one" "dup-count x2 "
+
 # --- a failed write is reported, not hidden
 if [ "$(id -u)" -ne 0 ]; then
   write_entry readonly-entry $'rule: a\ncount: 1\nlast_seen: 2026-11-01\ncase: c\nprevention: p\n'

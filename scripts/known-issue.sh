@@ -40,7 +40,8 @@ cap_note=30
 # names TMPDIR: macOS "mktemp -d" without a template ignores TMPDIR, and fails
 # where only TMPDIR is writable (a sandbox).
 tmp=""
-trap '[ -z "$tmp" ] || rm -rf "$tmp"' EXIT
+new_file=""
+trap '[ -z "$tmp" ] || rm -rf "$tmp"; [ -z "$new_file" ] || rm -f "$new_file"' EXIT
 make_tmp() {
   [ -z "$tmp" ] || return 0
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/known-issue.XXXXXX") || {
@@ -62,6 +63,16 @@ EOF
 fail_write() {
   echo "known-issue.sh: could not write $1; nothing was saved" >&2
   exit 1
+}
+
+# The new entry is built next to its destination, so that the final mv is a
+# rename inside one directory (atomic). A mv from TMPDIR can be a copy across
+# filesystems, which leaves a half-written entry when it fails part-way.
+make_new_file() {
+  new_file=$(mktemp "$issues_dir/.new.XXXXXX") || {
+    new_file=""
+    fail_write "$issues_dir"
+  }
 }
 
 valid_slug() {
@@ -95,9 +106,16 @@ scan_or_exit() {
   esac
 }
 
-# The first number after "count:", whatever follows it; empty when there is none.
+# The number on the first "count:" line (with or without a space after the
+# colon, and whatever follows the number); empty when that line has no number.
+# "recur" replaces this same line, so list and recur always read the same one.
 read_count() {
-  sed -n 's/^count: *\([0-9][0-9]*\).*/\1/p' "$1" | head -n 1
+  grep -m 1 '^count:' "$1" | sed -n 's/^count:[[:space:]]*\([0-9][0-9]*\).*/\1/p'
+}
+
+# The text on the first "last_seen:" line, without control characters.
+read_last_seen() {
+  grep -m 1 '^last_seen:' "$1" | sed 's/^last_seen:[[:space:]]*//; s/[[:space:]]*$//' | tr -d '\000-\037'
 }
 
 cmd_list() {
@@ -118,7 +136,7 @@ cmd_list() {
     slug=$(basename "$f" .md | tr -d '\000-\037')
     rule=$(grep -m 1 '^rule: ' "$f" | sed 's/^rule: //' | tr -d '\000-\010\013-\037' | cut -c "1-$max_rule")
     count=$(read_count "$f")
-    last=$(grep -m 1 -E '^last_seen: [0-9-]+[[:space:]]*$' "$f" | sed 's/^last_seen: //; s/[[:space:]]*$//')
+    last=$(read_last_seen "$f")
     printf '%s\t%s\t%s\t%s\n' "${count:-1}" "${last:--}" "$slug" "$rule" >> "$tmp/rows"
   done
   total=$(wc -l < "$tmp/rows" | tr -d ' ')
@@ -168,16 +186,18 @@ cmd_add() {
     exit 4
   fi
   mkdir -p "$issues_dir" || fail_write "$issues_dir"
+  make_new_file
   {
     printf 'rule: %s\ncount: 1\nfirst_seen: %s\nlast_seen: %s\n' "$rule" "$today" "$today"
     sed 1d "$tmp/entry"
-  } > "$tmp/new" || fail_write "$tmp/new"
-  mv "$tmp/new" "$target" || fail_write "$target"
+  } > "$new_file" || fail_write "$new_file"
+  mv "$new_file" "$target" || fail_write "$target"
+  new_file=""
   echo "$target"
 
   n=$(find "$issues_dir" -maxdepth 1 -name '*.md' | wc -l | tr -d ' ')
   if [ "$n" -gt "$cap_note" ]; then
-    echo "Note: $n known issues. Delete the entries that now live in your CLAUDE.md or the skill, and the ones that no longer apply."
+    echo "Note: $n known issues. Tell the user to delete the entries that now live in their CLAUDE.md or the skill, and the ones that no longer apply."
   fi
 }
 
@@ -201,24 +221,27 @@ cmd_recur() {
   scan_or_exit "$tmp/note"
 
   old=$(read_count "$target")
-  grep -q -E '^count: ' "$target" || need_c=1
-  grep -q -E '^last_seen: ' "$target" || need_l=1
+  grep -q '^count:' "$target" || need_c=1
+  grep -q '^last_seen:' "$target" || need_l=1
   new=$(( 10#${old:-1} + 1 ))
 
-  # Replace the first count and last_seen line in place. A line that is missing
-  # is added after line 1 (or alone, in an empty file).
+  # Replace the first count and last_seen line in place (the same lines that
+  # read_count and read_last_seen read). A line that is missing is added after
+  # line 1, or alone in an empty file.
+  make_new_file
   awk -v c="$new" -v d="$today" -v need_c="$need_c" -v need_l="$need_l" '
     function missing() {
       if (need_c) print "count: " c
       if (need_l) print "last_seen: " d
     }
-    /^count: / && !need_c && !hc { print "count: " c; hc = 1; if (NR == 1) missing(); next }
-    /^last_seen: / && !need_l && !hl { print "last_seen: " d; hl = 1; if (NR == 1) missing(); next }
+    /^count:/ && !need_c && !hc { print "count: " c; hc = 1; if (NR == 1) missing(); next }
+    /^last_seen:/ && !need_l && !hl { print "last_seen: " d; hl = 1; if (NR == 1) missing(); next }
     { print; if (NR == 1) missing() }
     END { if (NR == 0) missing() }
-  ' "$target" > "$tmp/new" || fail_write "$tmp/new"
-  printf 'recurrence: %s: %s\n' "$today" "$note" >> "$tmp/new" || fail_write "$tmp/new"
-  mv "$tmp/new" "$target" || fail_write "$target"
+  ' "$target" > "$new_file" || fail_write "$new_file"
+  printf 'recurrence: %s: %s\n' "$today" "$note" >> "$new_file" || fail_write "$new_file"
+  mv "$new_file" "$target" || fail_write "$target"
+  new_file=""
   echo "$slug: count $new"
 }
 
