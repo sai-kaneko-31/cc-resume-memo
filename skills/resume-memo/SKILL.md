@@ -107,14 +107,14 @@ The template is a checklist, not a form to fill in. Delete empty keys. Writing r
 
 ## The archive
 
-A restore reads the whole memo, so a finished item costs tokens in every restore and does not help the next session continue. Put finished work in an archive file that a restore does not read.
+A restore reads the whole memo, so a finished item costs tokens in every restore and does not help the next session continue. Put finished work in an archive file that a restore does not read by default.
 
 - Path: `<dir>/done/<same file name as the memo>`. Create `done/` if it does not exist. Do not use a sibling such as `<name>.done.yml`: it matches the `*-<project>-*.yml` pattern that the hooks and the restore command search.
 - Keys: only `done`, `decisions` and `observations`. The archive has no header keys and no `status`.
   - `done`: finished steps, one string each. A finished `in_progress` or `next` item moves here.
   - `decisions` and `observations`: items that belong to finished work, when no `in_progress`, `next` or `open_questions` item depends on them.
   - `failed` stays in the memo, because a failed approach still warns the next session.
-- Move an item, do not copy it: it lives in one file. The first write puts everything that is already finished straight into the archive, and every later update moves what has just been finished.
+- Move an item with all its fields, do not copy it: it lives in one file. An unverified inference keeps its `basis` in the archive. The first write puts everything that is already finished straight into the archive, and every later update moves what has just been finished.
 - When the archive already exists, read it and add the items under the same keys. A Write of the file would drop its earlier items.
 - When a later step needs the result of a finished item (a commit hash, a PR number, an ID), keep that result in the memo's `observations` or `refs`.
 - When nothing is finished, write no archive.
@@ -170,7 +170,7 @@ Compare `wc -l` before and after the update. If the memo grew, check that what y
 
 When the user pastes a path, read that memo. Otherwise take the newest open memo of the current project: `grep -l '^status: open' <dir>/*-<project>-*.yml`. The last line of the output is the newest, because file names start with a timestamp. The plugin's SessionStart hook for compaction does this lookup automatically. It prints the head of the newest open memos, and the path of a memo's archive when one exists.
 
-Read the memo only. Its archive (`<dir>/done/<same file name>`) holds finished work, which the next session does not need to continue. Open it only when the user asks what was done, or when a `next` item points at finished work. A memo written before the archive existed keeps `done:` inline and restores the same way. When you update such a memo, move its `done` items to the archive.
+Read the memo only. Its archive (`<dir>/done/<same file name>`) holds finished work, which the next session does not need to continue. Open it only when the user asks what was done, when a `next` item points at finished work, or when you add items to it. A memo written before the archive existed keeps `done:` inline and restores the same way. When you update such a memo, move its `done` items to the archive.
 
 Before relying on a memo:
 
@@ -185,7 +185,7 @@ When the resumed work is finished, move its finished items to the archive ("The 
 Always tell the user:
 
 1. The full path of the memo, and the path of the archive if you wrote one.
-2. A sentence to paste as the first message after /clear or after compaction: "Read <full path> and resume the work".
+2. A sentence to paste as the first message after /clear or after compaction: "Read <full path> and resume the work". When you wrote `status: done`, skip this: the hooks do not list a done memo, and there is nothing to resume. Say that the memo is a record only.
 3. If the check exited with 3: "The YAML was not checked (no ruby, and no python3 with PyYAML)".
 
 If this is forgotten, nothing tells the user after the command runs that the memo exists, and the saving was for nothing.
