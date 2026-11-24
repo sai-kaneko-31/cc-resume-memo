@@ -51,6 +51,16 @@ The skill does not run when you are only talking about compaction. It runs when 
 
 Memos are written to `~/.claude/resume-memos/<YYYYMMDD-HHMM>-<project>-<task-slug>.yml`. Set `RESUME_MEMO_DIR` to use another directory. The hooks read the same variable.
 
+## Known issues
+
+The skill keeps a small log of its own failures, so the next run does not repeat them. It is separate from the memos: a memo is the state of one session, an entry is what to do differently next time.
+
+- One file per failure: `~/.claude/resume-memos/known-issues/<slug>.md`. A file has a one-line `rule:`, a `case:` and a `prevention:`, plus `count`, `first_seen` and `last_seen`. A repeat of the same cause adds to the count and appends a `recurrence:` line instead of creating a second file.
+- Before writing a memo, the skill runs `scripts/known-issue.sh list`. It prints one line per entry, the most repeated first, at most 20 lines, and nothing when there are no entries. The skill opens an entry's file only when the rule line is not enough.
+- After a run in which a step failed or had to be redone, and the cause can happen again, the skill records it. A failure that the next command caught is not recorded.
+- Only failures of this skill's own work (writing, checking, updating or restoring a memo) are recorded. This is not a log of everything that went wrong in a session, and the plugin writes nowhere outside its own directory.
+- Entries are scanned for secret-like text before they are written, with the same patterns as the memo check. It is a safety net, not a guarantee. When an entry has been moved into your `CLAUDE.md` or into the skill's text, delete its file.
+
 ## Hooks
 
 - `SessionStart` with the `compact` matcher: after a compaction, prints the head (task, created, cwd, branch, head, goal) of the newest three open memos of the current project, so Claude can read the one that matches.
@@ -63,6 +73,7 @@ Memos are written to `~/.claude/resume-memos/<YYYYMMDD-HHMM>-<project>-<task-slu
 - It loads the YAML, and reports list items that YAML read as something other than text (a plain item containing `: ` becomes a mapping, and a bare `yes` becomes a boolean). The load succeeds in both cases, so only this check catches them.
 - It scans for secret-like text (private key headers, GitHub, Slack and AWS keys, URLs with credentials, bearer tokens, `key=value` assignments) and names the pattern and the line, not the value. It is a safety net, not a guarantee.
 - Exit codes: 0 ok, 1 YAML problem, 2 secret-like text, 3 YAML not checked because neither ruby nor python3 with PyYAML is installed.
+- `--secrets-only <file>` scans any text file for secret-like text and does not load it as YAML (exit 0 or 2). `known-issue.sh` uses it on the entries it writes.
 
 ## Requirements
 

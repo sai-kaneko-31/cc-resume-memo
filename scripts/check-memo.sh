@@ -3,9 +3,11 @@
 #
 #   check-memo.sh <memo.yml>          load check, list-item check, secret scan
 #   check-memo.sh --keys <memo.yml>   print the top-level keys, comma-separated
+#   check-memo.sh --secrets-only <file>   secret scan only, for text that is not YAML
 #
 # Exit codes
 #   0   loads as YAML, every list item is a string, no secret-like text found
+#       (--secrets-only: no secret-like text found; the file is not loaded as YAML)
 #   1   does not load as YAML, a list item is not a string, or text after a " #" was read as a comment
 #   2   secret-like text found (the output names the pattern and the line, not the value)
 #   3   neither ruby nor python3 with PyYAML is available: the YAML was NOT checked
@@ -21,10 +23,13 @@ mode=check
 if [ "${1:-}" = "--keys" ]; then
   mode=keys
   shift
+elif [ "${1:-}" = "--secrets-only" ]; then
+  mode=secrets
+  shift
 fi
 file="${1:-}"
 if [ -z "$file" ] || [ ! -f "$file" ]; then
-  echo "usage: check-memo.sh [--keys] <memo.yml>" >&2
+  echo "usage: check-memo.sh [--keys|--secrets-only] <memo.yml>" >&2
   exit 64
 fi
 
@@ -153,6 +158,9 @@ if [ "$runtime" = auto ]; then
   fi
 fi
 
+# --secrets-only never loads the file as YAML, so it needs no runtime.
+[ "$mode" = secrets ] && runtime=skip
+
 if [ "$mode" = keys ]; then
   case "$runtime" in
     ruby) ruby_keys ;;
@@ -188,6 +196,15 @@ scan "API key (sk- prefix)" 'sk-[A-Za-z0-9_-]{20,}'
 scan "URL with embedded credentials" '[A-Za-z][A-Za-z0-9+.-]*://[^/[:space:]:@]+:[^@[:space:]]+@'
 scan "Bearer token" '[Bb]earer [A-Za-z0-9._~+/=-]{20,}'
 scan "Secret-like assignment" "(api[_-]?key|secret|passw(or)?d|token)[A-Za-z0-9_]*[\"']?[[:space:]]*[:=][[:space:]]*[\"']?[A-Za-z0-9/+_.=-]{12,}" -i
+
+if [ "$mode" = secrets ]; then
+  if [ -n "$secret_hits" ]; then
+    echo "Possible secrets (remove the value, keep only the name):"
+    printf '%s' "$secret_hits"
+    exit 2
+  fi
+  exit 0
+fi
 
 case "$yaml_status" in
   0) echo "YAML: ok ($yaml_label)" ;;

@@ -12,10 +12,13 @@ Run only when the user asks to save the state now, or announces /compact or /cle
 
 ## Steps
 
+Before step 1, run `"${CLAUDE_PLUGIN_ROOT}/scripts/known-issue.sh" list` and read what it prints. Those are failures that earlier runs of this skill hit ("Known issues").
+
 1. Decide the path ("Where to write").
 2. Write the memo with the template ("Template").
 3. Check the memo ("Check after writing").
-4. Tell the user the path and how to restore ("Closing message").
+4. If a step failed or had to be redone, record it ("Known issues").
+5. Tell the user the path and how to restore ("Closing message").
 
 ## Where to write
 
@@ -161,5 +164,37 @@ Always tell the user:
 1. The full path of the memo.
 2. A sentence to paste as the first message after /clear or after compaction: "Read <full path> and resume the work".
 3. If the check exited with 3: "The YAML was not checked (no ruby, and no python3 with PyYAML)".
+4. If you recorded or counted a known issue: its slug. When its count is 2 or more, say that it is a candidate to move into the user's CLAUDE.md or into this skill's text. The entry file can be deleted once it has been moved.
 
 If this is forgotten, nothing tells the user after the command runs that the memo exists, and the saving was for nothing.
+
+## Known issues
+
+A memo is the state of one session. A known issue is what to do differently the next time this skill runs. Earlier runs record the failures they hit, one file per failure, in `<dir>/known-issues/<slug>.md` (`<dir>` is the memo directory, see "Where to write"). Only failures of this skill's own work (writing, checking, updating or restoring a memo) belong here. Failures of other work in the session do not.
+
+Reading: the `list` command before step 1 prints one line per entry, `<slug> x<count> <last_seen>: <rule>`. The most repeated come first, at most 20 lines, and nothing is printed when there is no entry. Apply a rule when it touches the step you are on. Open the entry's file only when the rule line is not enough.
+
+Recording (step 4): record a failure when all three of these hold.
+
+- A step of this skill failed or had to be redone. For example, the check exited 1 or 2 more than once for one memo, the user said the memo was wrong or stale, or a restore was misled by a memo.
+- It can happen again.
+- You can say in one step what to do differently.
+
+Do not record a one-off slip that the next command caught. Then do one of these:
+
+- The cause is the same as a listed entry: run `"${CLAUDE_PLUGIN_ROOT}/scripts/known-issue.sh" recur <slug> "<one line: what happened this time>"`.
+- No listed entry has this cause: run `"${CLAUDE_PLUGIN_ROOT}/scripts/known-issue.sh" add <slug>` with the entry on stdin, in a quoted heredoc (`<<'EOF'`):
+
+```
+rule: <one line, at most 200 characters: what to do or avoid>
+case: <what happened, with the exact error text or value>
+prevention: <the step to do differently>
+```
+
+The slug is lowercase letters, digits and hyphens, for example `colon-in-plain-item`. The script adds the `count`, `first_seen` and `last_seen` lines. Exit codes of `add` and `recur`:
+
+- 0: done.
+- 2: secret-like text was found and nothing was written. Keep the variable name, drop the value, and run it again.
+- 4: `add` found an entry with this slug. Use `recur`.
+- 5: `recur` found no entry with this slug.
+- 64: usage error, or an entry that lacks the `rule:` first line, a `case:` line or a `prevention:` line.

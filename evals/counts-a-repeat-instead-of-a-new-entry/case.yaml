@@ -1,0 +1,45 @@
+schema_version: "1.1"
+name: counts-a-repeat-instead-of-a-new-entry
+description: >-
+  The memo directory already has a known issue about a plain list item that
+  contains ": ". The recap says the same failure happened again. The skill must
+  count the repeat on the existing entry and must not rewrite the entry or
+  create a second one.
+tags: [known-issues]
+execution:
+  max_turns: 16
+  allowed_tools: [Read, Skill]
+  prompt: |
+    Where things stand on the CSV export bug:
+    - Next: write a failing test for the 10-row case, then fix the batch loop at app/exports/csv.rb:42.
+    - Branch fix/csv-export at commit 1a2b3c4, directory /work/myapp.
+
+    While saving the session state earlier today, the check script failed again. I had written the step `run: bin/rails db:migrate` as a plain list item, and the check exited 1 with `next[0] is Hash, not a string`. I rewrote it as a `- |` block scalar and the check passed.
+
+    I'm about to run /compact. Save the session state to ./out/memo.yml. My memo directory is ./out, so run the plugin's scripts with RESUME_MEMO_DIR=./out.
+context:
+  scaffold_script: scaffold.sh
+graders:
+  # Run with --scaffold --allow-tools Write Bash. Without Bash the scripts cannot run.
+  - name: memo-written
+    type: file_exists
+    path: out/memo.yml
+  - name: repeat-is-counted
+    type: regex
+    target: { source: file, path: out/known-issues/colon-in-plain-item.md }
+    pattern: '^count: 2$'
+    flags: m
+  - name: repeat-is-written-down
+    type: regex
+    target: { source: file, path: out/known-issues/colon-in-plain-item.md }
+    pattern: '^recurrence: \S+: \S'
+    flags: m
+  - name: first-seen-is-kept
+    type: regex
+    target: { source: file, path: out/known-issues/colon-in-plain-item.md }
+    pattern: '^first_seen: 2026-11-20$'
+    flags: m
+  - name: rule-is-unchanged
+    type: regex
+    target: { source: file, path: out/known-issues/colon-in-plain-item.md }
+    pattern: '^rule: Write a list item that contains ": " as a "- \|" block scalar from the start\n'
