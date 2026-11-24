@@ -1,0 +1,58 @@
+schema_version: "1.1"
+name: moves-finished-items-to-archive
+description: The recap has two finished steps, one step in progress and one next step. The finished steps must go to the archive file next to the memo, and the memo must keep only what is needed to continue.
+tags: [memo, archive]
+execution:
+  max_turns: 12
+  allowed_tools: [Read, Skill]
+  prompt: |
+    Where things stand on the CSV export bug:
+    - Finished: renamed the config key `export_timeout` to `timeout_sec` in config/export.yml and in app/exports/csv.rb. The tests pass.
+    - Finished: added the failing test for the 10-row case in spec/exports/csv_spec.rb.
+    - In progress: fixing the batch loop at app/exports/csv.rb:42. The test still fails with `expected 10 rows, got 9`.
+    - Next: ask the customer for the 2 GB file, then re-run `bin/export --rows 10 | wc -l`.
+    The branch is fix/csv-export at commit 1a2b3c4, and the working directory is /work/myapp.
+
+    I'm about to run /compact. Save the session state to ./out/memo.yml (create the directory). Put the archive of finished work where the skill says, relative to that file.
+graders:
+  # Run with --allow-tools Write, otherwise nothing can be written.
+  - name: memo-written
+    type: file_exists
+    path: out/memo.yml
+  - name: archive-written-next-to-the-memo
+    type: file_exists
+    path: out/done/memo.yml
+  - name: finished-step-is-in-the-archive
+    type: regex
+    target: { source: file, path: out/done/memo.yml }
+    pattern: 'timeout_sec'
+  - name: memo-has-no-done-key
+    type: regex
+    target: { source: file, path: out/memo.yml }
+    pattern: '^done:'
+    flags: m
+    match: not_contains
+  # The finished step's own sentence stays out of the memo. A bare `timeout_sec`
+  # is allowed there: the skill lets a result that a later step needs live in
+  # `refs` (in the trial runs, a `refs` note named the renamed key).
+  - name: finished-step-is-not-in-the-memo
+    type: regex
+    target: { source: file, path: out/memo.yml }
+    pattern: 'tests? pass|added the failing test'
+    flags: i
+    match: not_contains
+  - name: memo-keeps-the-step-in-progress
+    type: regex
+    target: { source: file, path: out/memo.yml }
+    pattern: 'app/exports/csv\.rb:42'
+  - name: memo-keeps-the-next-step
+    type: regex
+    target: { source: file, path: out/memo.yml }
+    pattern: '2 GB'
+  # The archive is not a memo: no status line, so a restore never lists it.
+  - name: archive-has-no-status
+    type: regex
+    target: { source: file, path: out/done/memo.yml }
+    pattern: '^status:'
+    flags: m
+    match: not_contains

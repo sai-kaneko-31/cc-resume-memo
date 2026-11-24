@@ -64,6 +64,24 @@ fi
 out=$(HOME="$home" CLAUDE_PROJECT_DIR="$tmp/wt-foo" bash "$restore" </dev/null)
 contains "restore: a worktree resolves to its main checkout's project" "$out" "proj-xyz-new.yml"
 
+# The archive of a memo lives in done/ next to it. The archive here carries a
+# "status: open" line on purpose: it must still not be listed as a memo.
+mkdir -p "$memos/done"
+printf 'status: open\ndone:\n  - finished step\n' > "$memos/done/20261113-1100-proj-xyz-new.yml"
+out=$(HOME="$home" CLAUDE_PROJECT_DIR="$proj" bash "$restore" </dev/null)
+contains "restore: points at the archive of a memo that has one" "$out" "archive: $memos/done/20261113-1100-proj-xyz-new.yml"
+lacks "restore: names no archive for a memo without one" "$out" "$memos/done/20261113-0900-proj-xyz-old.yml"
+contains "restore: tells the session not to read the archive by default" "$out" "not needed to continue"
+n_listed=$(printf '%s\n' "$out" | grep -c '^--- ')
+if [ "$n_listed" -eq 2 ]; then
+  report "restore: an archive is not listed as a memo" 0
+else
+  report "restore: an archive is not listed as a memo" 1
+fi
+out=$(HOME="$home" CLAUDE_PROJECT_DIR="$proj" bash "$precompact" </dev/null)
+contains "pre-compact: names the memo, not its archive" "$out" "A resume memo for this project is open: $memos/20261113-1100-proj-xyz-new.yml"
+rm -r "$memos/done"
+
 out=$(HOME="$tmp/no-such-home" CLAUDE_PROJECT_DIR="$proj" bash "$restore" </dev/null)
 if [ -z "$out" ]; then
   report "restore: prints nothing when the directory does not exist" 0
