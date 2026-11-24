@@ -560,6 +560,13 @@ if [ -n "$utf8" ]; then
   expect_rc "search: a line that is not valid UTF-8 exits 0 in a UTF-8 locale" 0
   has "search: the line after a line that is not valid UTF-8 is still printed" "foo second"
   lacks "search: no filter complains about the bad byte" "Illegal byte"
+  # grep itself, in a UTF-8 locale, did not match a word that comes after a bad byte on the same line.
+  out=$(LC_ALL="$utf8" RESUME_MEMO_ISSUES_DIR="$bad" bash "$ki" search bar 2>&1 </dev/null)
+  has "search: a word after a bad byte on the same line is found" "n.md:1:"
+  printf 'caf\351 latin1 needle\nneedle2\n' > "$bad/latin.md"
+  out=$(LC_ALL="$utf8" RESUME_MEMO_ISSUES_DIR="$bad" bash "$ki" search needle 2>&1 </dev/null)
+  has "search: a Latin-1 line that holds the word is found" "latin.md:1:"
+  has "search: the next line of that file is found too" "latin.md:2:needle2"
 
   badent="$tmp/bad-entries"
   mkdir -p "$badent"
@@ -635,6 +642,21 @@ if [ "$out" = "/x" ]; then report "home: HOME=/ gives /x" 0; else report "home: 
 # shellcheck disable=SC2088  # a literal "~" is the input under test
 out=$(HOME=/ RESUME_MEMO_ISSUES_DIR='~' bash "$ki" dir 2>&1 </dev/null)
 if [ "$out" = "/" ]; then report "home: ~ with HOME=/ gives /" 0; else report "home: ~ with HOME=/ gives /" 1 "$out"; fi
+
+# --- a count that would wrap around is refused, not written as a negative number
+big="$tmp/big-count"
+mkdir -p "$big"
+printf 'rule: big\ncase: c\nprevention: p\ncount: 9223372036854775807\n' > "$big/big.md"
+printf 'rule: edge\ncase: c\nprevention: p\ncount: 999999999999999\n' > "$big/edge.md"
+big_sum=$(cksum "$big/big.md")
+out=$(RESUME_MEMO_ISSUES_DIR="$big" bash "$ki" recur big "again" 2>&1 </dev/null)
+rc=$?
+expect_rc "count: a count of 19 digits is refused with exit 64" 64
+if [ "$(cksum "$big/big.md")" = "$big_sum" ]; then report "count: a refused recur leaves the file as it was" 0; else report "count: a refused recur leaves the file as it was" 1; fi
+out=$(RESUME_MEMO_ISSUES_DIR="$big" bash "$ki" recur edge "again" 2>&1 </dev/null)
+rc=$?
+expect_rc "count: a count of 15 digits is still counted" 0
+has "count: 15 digits plus one is 1000000000000000" "count 1000000000000000"
 
 # --- usage
 run "" nonsense

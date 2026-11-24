@@ -25,6 +25,12 @@
 # no line matches. It exits 0 when it read everything, so an empty output with
 # exit 0 means that nothing matched, and 1 when part of the directory was not readable.
 #
+# Locale: the filters that read a file run in the C locale, so a file that is not
+# valid UTF-8 is read like any other. The caps count characters in a UTF-8 locale and
+# bytes in the C locale: "add" refuses a rule of more than 200 bytes there, and
+# "list" cuts a rule at 200 bytes, which can fall inside a character of a rule
+# that was written in a UTF-8 locale. "search" folds the case of ASCII letters only.
+#
 # Exit codes
 #   0   done
 #   1   a temporary directory could not be made under TMPDIR (default /tmp), the
@@ -35,9 +41,10 @@
 #       an entry (use "recur"), a symbolic link or another file (choose another slug)
 #   5   recur: no entry with this slug (a file that is not an entry, and a symbolic
 #       link, count as none)
-#   64  usage error, an entry that does not have the required lines, or a
-#       RESUME_MEMO_ISSUES_DIR that starts with ~name, or with ~ while HOME is empty.
-#       Every command exits 64 for the setting, before it does anything else.
+#   64  usage error, an entry that does not have the required lines, recur: a
+#       count: line of more than 15 digits, or a RESUME_MEMO_ISSUES_DIR that starts
+#       with ~name, or with ~ while HOME is empty. Every command exits 64 for the
+#       setting, before it does anything else.
 #
 # Environment
 #   RESUME_MEMO_ISSUES_DIR  directory of the entries. A leading ~ or ~/ is expanded with
@@ -256,10 +263,12 @@ cmd_search() {
   done
   # The trailing slash makes "grep -r" enter the directory when it is a symbolic
   # link: BSD grep does not follow a link that is given without it.
-  # The filters run in the C locale: in a UTF-8 locale "tr" stops at a byte that
-  # is not valid UTF-8 and drops that line and the rest, with exit 0. A line
-  # longer than 300 bytes may be cut inside a multibyte character.
-  grep -r -I -n -i -F --include='*.md' "${args[@]}" "$issues_dir/" 2> /dev/null \
+  # grep and the filters run in the C locale: in a UTF-8 locale grep does not
+  # match on a line that has a byte that is not valid UTF-8, and "tr" stops at
+  # such a byte and drops that line and the rest, all with exit 0. The cost is
+  # that -i folds the case of ASCII letters only, and that a line longer than
+  # 300 bytes may be cut inside a multibyte character.
+  LC_ALL=C grep -r -I -n -i -F --include='*.md' "${args[@]}" "$issues_dir/" 2> /dev/null \
     | LC_ALL=C tr -d '\000-\010\013-\037' | LC_ALL=C cut -c 1-300 \
     | LC_ALL=C awk -v max="$max_hits" 'NR <= max { print } END { if (NR > max) print "(+" NR - max " more matching lines)" }'
   status=${PIPESTATUS[0]}
@@ -356,6 +365,11 @@ cmd_recur() {
   scan_or_exit "$tmp/note"
 
   old=$(read_count "$target")
+  # 10#N + 1 wraps around to a negative number in bash from 19 digits on.
+  if [ "${#old}" -gt 15 ]; then
+    echo "known-issue.sh: the count of $slug.md has more than 15 digits. It was not changed. Fix its count: line by hand." >&2
+    exit 64
+  fi
   grep -q '^count:' "$target" || need_c=1
   grep -q '^last_seen:' "$target" || need_l=1
   new=$(( 10#${old:-1} + 1 ))

@@ -9,7 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - `RESUME_MEMO_ISSUES_DIR`: the directory of the known-issues entries, for a directory the user already fills by hand. A leading `~/` is expanded, and `~name/` is refused with exit 64, as is `~` while HOME is empty. The default stays `known-issues/` inside the memo directory.
-- `known-issue.sh search <word>...` prints the lines that contain any of the words, ignoring case, from the `.md` files under that directory. Notes written by hand are searched too, and at most 20 lines are printed. The skill uses it to look a cause up before it adds an entry. `known-issue.sh dir` prints the directory.
+- `known-issue.sh search <word>...` prints the lines that contain any of the words, ignoring the case of ASCII letters, from the `.md` files under that directory. Notes written by hand are searched too, and at most 20 lines are printed. The skill uses it to look a cause up before it adds an entry. `known-issue.sh dir` prints the directory.
 - The skill records known issues without writing a memo when the user asks to record them.
 
 ### Changed

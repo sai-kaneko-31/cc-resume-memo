@@ -79,6 +79,7 @@ Plugin arm only (`--ablation none`, three runs each, Claude Code 2.1.331). The c
 - `moves-finished-items-to-archive` first scored 0.88 three times, because one grader rejected a `refs` note that names the renamed key, which the skill allows. The grader now looks for the finished step's own sentence.
 - `records-a-known-issue` first scored 0.14, 0.14 and 1.00. `known-issue.sh` called `mktemp -d` without a template. On macOS that ignores `TMPDIR` and fails inside the eval sandbox with "Operation not permitted". The script now names `TMPDIR` in the template. `counts-a-repeat-instead-of-a-new-entry` had scored 1.00, 0.80 and 0.60 before that change.
 - The control scores above 0 come from graders that the older skill can pass. It still writes the memo, and it leaves the scaffold's entry untouched, so the rule and `first_seen` stay as they were.
+
 ## The three session-wide cases
 
 Plugin arm only (`--ablation none`, three runs each, Claude Code 2.1.331). The control for the first two is the skill of 0.2.0, run from a detached worktree of `origin/main` with only these case files copied in.
