@@ -1,6 +1,6 @@
 {
   "name": "resume-memo",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Write the working state that exists only in the conversation (decisions and reasons, failed attempts, observations, next steps) to a per-session YAML memo, so a fresh session can resume from the file alone.",
   "author": {
     "name": "sai-kaneko-31",
