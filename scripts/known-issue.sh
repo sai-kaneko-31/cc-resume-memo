@@ -149,8 +149,13 @@ valid_slug() {
 # link is not one: "search" does not read a link inside the directory, so a
 # listed link would be an entry that the duplicate check cannot find.
 is_entry() {
-  [ -f "$1" ] && [ ! -L "$1" ] && [ "$(head -n 1 "$1" | cut -c1-6)" = "rule: " ]
+  [ -f "$1" ] && [ ! -L "$1" ] && [ "$(head -n 1 "$1" | LC_ALL=C cut -c1-6)" = "rule: " ]
 }
+
+# The filters below read files that may not be valid UTF-8 (notes written by
+# hand, in another encoding). In a UTF-8 locale tr, sed, cut and awk stop at a
+# byte that is not valid, so they run in the C locale (bytes). Only the
+# character cap of "list" needs characters; see cut_chars.
 
 # Remove leading and trailing blanks.
 trim() {
@@ -183,12 +188,21 @@ scan_or_exit() {
 # colon, and whatever follows the number); empty when that line has no number.
 # "recur" replaces this same line, so list and recur always read the same one.
 read_count() {
-  grep -m 1 '^count:' "$1" | sed -n 's/^count:[[:space:]]*\([0-9][0-9]*\).*/\1/p'
+  grep -m 1 '^count:' "$1" | LC_ALL=C sed -n 's/^count:[[:space:]]*\([0-9][0-9]*\).*/\1/p'
 }
 
 # The text on the first "last_seen:" line, without control characters.
 read_last_seen() {
-  grep -m 1 '^last_seen:' "$1" | sed 's/^last_seen:[[:space:]]*//; s/[[:space:]]*$//' | tr -d '\000-\037'
+  grep -m 1 '^last_seen:' "$1" | LC_ALL=C sed 's/^last_seen:[[:space:]]*//; s/[[:space:]]*$//' | LC_ALL=C tr -d '\000-\037'
+}
+
+# Cut one line from stdin to N characters. Text that is not valid in the
+# locale makes cut fail after a partial output, so it is cut by bytes instead.
+cut_chars() { # <n>
+  local text out
+  text=$(cat)
+  out=$(printf '%s\n' "$text" | cut -c "1-$1" 2> /dev/null) || out=$(printf '%s\n' "$text" | LC_ALL=C cut -c "1-$1")
+  printf '%s\n' "$out"
 }
 
 cmd_list() {
@@ -206,8 +220,8 @@ cmd_list() {
   : > "$tmp/rows"
   for f in "$issues_dir"/*.md; do
     is_entry "$f" || continue
-    slug=$(basename "$f" .md | tr -d '\000-\037')
-    rule=$(grep -m 1 '^rule: ' "$f" | sed 's/^rule: //' | tr -d '\000-\010\013-\037' | cut -c "1-$max_rule")
+    slug=$(basename "$f" .md | LC_ALL=C tr -d '\000-\037')
+    rule=$(grep -m 1 '^rule: ' "$f" | LC_ALL=C sed 's/^rule: //' | LC_ALL=C tr -d '\000-\010\013-\037' | cut_chars "$max_rule")
     count=$(read_count "$f")
     last=$(read_last_seen "$f")
     printf '%s\t%s\t%s\t%s\n' "${count:-1}" "${last:--}" "$slug" "$rule" >> "$tmp/rows"
@@ -351,7 +365,7 @@ cmd_recur() {
   # line 1, which is the rule line.
   make_new_file
   set_mode "$new_file" "$target"
-  awk -v c="$new" -v d="$today" -v need_c="$need_c" -v need_l="$need_l" '
+  LC_ALL=C awk -v c="$new" -v d="$today" -v need_c="$need_c" -v need_l="$need_l" '
     /^count:/ && !need_c && !hc { print "count: " c; hc = 1; next }
     /^last_seen:/ && !need_l && !hl { print "last_seen: " d; hl = 1; next }
     { print }

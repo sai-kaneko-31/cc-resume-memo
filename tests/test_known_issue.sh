@@ -542,8 +542,15 @@ chmod 640 "$modes/mode-022.md"
 if [ "$(mode_of "$modes/mode-022.md")" = "640" ]; then report "mode: a repeat keeps the mode of the entry" 0; else report "mode: a repeat keeps the mode of the entry" 1 "$(mode_of "$modes/mode-022.md")"; fi
 
 # --- search keeps the lines after a line that is not valid UTF-8
-# In a UTF-8 locale "tr" stops at such a byte and drops that line and the rest, with exit 0.
-utf8=$(locale -a 2> /dev/null | grep -i -m 1 'utf-\{0,1\}8')
+# In a UTF-8 locale tr, sed, cut and awk stop at such a byte: search dropped that line and the rest
+# with exit 0, list cut the rule short, and recur failed. A skipped test is printed and not counted.
+skip() { echo "skip $1"; }
+utf8=""
+for cand in en_US.UTF-8 C.UTF-8 ja_JP.UTF-8; do
+  if locale -a 2> /dev/null | grep -qix "$cand"; then utf8=$cand; break; fi
+done
+[ -n "$utf8" ] || utf8=$(locale -a 2> /dev/null | grep -i -m 1 'utf-\{0,1\}8')
+if [ -n "$utf8" ] && [ "$(LC_ALL="$utf8" locale charmap 2> /dev/null)" != "UTF-8" ]; then utf8=""; fi
 bad="$tmp/bad-bytes"
 mkdir -p "$bad"
 printf 'foo \377\376 bar\nfoo second\n' > "$bad/n.md"
@@ -552,8 +559,35 @@ if [ -n "$utf8" ]; then
   rc=$?
   expect_rc "search: a line that is not valid UTF-8 exits 0 in a UTF-8 locale" 0
   has "search: the line after a line that is not valid UTF-8 is still printed" "foo second"
+  lacks "search: no filter complains about the bad byte" "Illegal byte"
+
+  badent="$tmp/bad-entries"
+  mkdir -p "$badent"
+  printf 'rule: abc \377 def\ncase: c\nprevention: p\ncount: 2\nfirst_seen: 2026-01-01\nlast_seen: 2026-01-02\n' > "$badent/mid.md"
+  printf 'rule: \377abc\ncase: c\nprevention: p\ncount: 3\n' > "$badent/first.md"
+  printf '\377ule: not an entry\ncase: c\nprevention: p\n' > "$badent/notentry.md"
+  out=$(LC_ALL="$utf8" RESUME_MEMO_ISSUES_DIR="$badent" bash "$ki" list 2>&1 </dev/null)
+  rc=$?
+  expect_rc "bad bytes: list exits 0" 0
+  has "bad bytes: list keeps the text after a bad byte in the rule" " def"
+  has "bad bytes: list keeps the text after a bad byte at the start of the rule" "abc"
+  has "bad bytes: list reads the count and date of an entry whose rule has a bad byte" "mid x2 2026-01-02"
+  lacks "bad bytes: list does not show a file whose first line only looks like a rule" "notentry"
+  lacks "bad bytes: no filter of list complains" "Illegal byte"
+  out=$(LC_ALL="$utf8" RESUME_MEMO_ISSUES_DIR="$badent" RESUME_MEMO_TODAY=2026-11-24 bash "$ki" recur mid "again" 2>&1 </dev/null)
+  rc=$?
+  expect_rc "bad bytes: recur counts an entry whose rule has a bad byte" 0
+  has "bad bytes: the count goes from 2 to 3" "count 3"
+
+  # The cap of list is 200 characters, not 200 bytes: a valid UTF-8 rule of 150 characters is shown whole.
+  jp="$tmp/jp-entries"
+  mkdir -p "$jp"
+  long=$(LC_ALL="$utf8" bash -c 'printf "あ%.0s" $(seq 1 149)')終
+  printf 'rule: %s\ncase: c\nprevention: p\n' "$long" > "$jp/long.md"
+  out=$(LC_ALL="$utf8" RESUME_MEMO_ISSUES_DIR="$jp" bash "$ki" list 2>&1 </dev/null)
+  has "list: a rule of 150 characters in UTF-8 is not cut at 200 bytes" "終"
 else
-  report "search: no UTF-8 locale on this machine, test skipped" 0
+  skip "no UTF-8 locale on this machine: the tests of search, list and recur with a bad byte"
 fi
 
 # --- search says so when it could not read part of the directory (an empty output is then not "no match")
@@ -570,7 +604,7 @@ if [ "$(id -u)" -ne 0 ]; then
   has "search: the message says the result may be incomplete" "incomplete"
   has "search: the matches that could be read are still printed" "top.md"
 else
-  report "search: running as root, the unreadable-directory test is skipped" 0
+  skip "running as root: the unreadable-directory test of search"
 fi
 
 # --- a symbolic link is not an entry: list does not show it, because search cannot find it

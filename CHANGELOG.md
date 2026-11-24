@@ -16,6 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - The log covers the failures of the whole session, not only the failures of the skill's own steps. A cause that is already written down in a note written by hand is reported to the user and not added again.
 - Only a file whose first line starts with `rule: ` is an entry. `list` skips other files, `recur` and `add` leave them unchanged, and the "more than 30 entries" note counts entries only.
+- A file that is not valid UTF-8, such as a note written by hand in another encoding, no longer hides lines from `search`, cuts a rule short in `list` or makes `recur` fail in a UTF-8 locale.
 - A symbolic link is not an entry: `list` skips it, and `add` and `recur` never write through or replace it. `search` exits 1 when it could not read part of the directory, so an empty output with exit 0 always means that nothing matched. A new entry gets the file mode that the umask gives, and a repeat keeps the mode of the entry.
 
 ## [0.2.0] - 2026-11-24
