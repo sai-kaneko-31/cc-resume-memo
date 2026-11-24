@@ -57,7 +57,7 @@ A restore reads the whole memo, so finished items would cost tokens in every res
 
 - The `done/` directory is not matched by the pattern the hooks and the restore command use, so an archive is never listed as a memo.
 - Each update moves what has just been finished into the archive. A superseded item is replaced in place, not kept under "Older note".
-- The SessionStart hook prints the path of a memo's archive when one exists. The skill opens it only when you ask what was done, or when a next step points at finished work.
+- The SessionStart hook prints the path of a memo's archive when one exists. The skill opens it only when you ask what was done, when a next step points at finished work, or before it adds items to it.
 - A memo written before the archive existed keeps `done:` inline and restores as before. `check-memo.sh` prints a `Note:` for an open memo that still has `done` items, so they are moved when the memo is next updated.
 
 ## Hooks
