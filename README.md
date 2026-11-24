@@ -53,11 +53,11 @@ Memos are written to `~/.claude/resume-memos/<YYYYMMDD-HHMM>-<project>-<task-slu
 
 ## The archive
 
-A restore reads the whole memo, so finished items would cost tokens in every restore. Finished work goes to a second file that a restore does not read: `~/.claude/resume-memos/done/<same file name>`. That is the `done` steps, and the decisions and observations that belong to them. A memo then holds only what is needed to continue. That is what is in progress, what is next, the open questions, and the reasons behind decisions that still apply.
+A restore reads the whole memo, so finished items would cost tokens in every restore. Finished work goes to a second file that a restore does not read: `~/.claude/resume-memos/done/<same file name>`. That is the `done` steps, and the decisions and observations that belong to them. A memo then holds only what is needed to continue. That is what is in progress, what is next, the open questions, and the decisions and observations that those items still depend on.
 
 - The `done/` directory is not matched by the pattern the hooks and the restore command use, so an archive is never listed as a memo.
 - Each update moves what has just been finished into the archive. A superseded item is replaced in place, not kept under "Older note".
-- The SessionStart hook prints the path of a memo's archive when one exists. The skill opens it only when you ask what was done.
+- The SessionStart hook prints the path of a memo's archive when one exists. The skill opens it only when you ask what was done, or when a next step points at finished work.
 - A memo written before the archive existed keeps `done:` inline and restores as before. `check-memo.sh` prints a `Note:` for an open memo that still has `done` items, so they are moved when the memo is next updated.
 
 ## Hooks

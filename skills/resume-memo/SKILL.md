@@ -102,7 +102,7 @@ The template is a checklist, not a form to fill in. Delete empty keys. Writing r
 
 - The first six keys (`task` to `head`) are one-line values, so that `grep -l '^status: open' <dir>/*.yml` finds memos line by line.
 - Use a block scalar (`|`) when a value contains `: ` or ` #` (an issue reference such as `see issue #123` counts: YAML reads ` #123` as the start of a comment and drops it with the rest of the line), starts with a symbol (backtick, `"`, `'`, `[`, `{`, `*`, `&`, `!`, `|`, `>`, `%`, `@`, `- `, `? `), or is verbatim multi-line text such as an error message or command output. A block scalar keeps text verbatim more reliably than quoting.
-- `status` is `open` when there is something to continue and `done` when the work is finished. Write `open` when creating a memo.
+- `status` is `open` when there is something to continue and `done` when the work is finished. Write `open` when creating a memo, unless the session's work is already finished and nothing is left to continue: then write `done`.
 - The template has no `done` key: finished work goes to the archive (next section).
 
 ## The archive
@@ -110,8 +110,8 @@ The template is a checklist, not a form to fill in. Delete empty keys. Writing r
 A restore reads the whole memo, so a finished item costs tokens in every restore and does not help the next session continue. Put finished work in an archive file that a restore does not read.
 
 - Path: `<dir>/done/<same file name as the memo>`. Create `done/` if it does not exist. Do not use a sibling such as `<name>.done.yml`: it matches the `*-<project>-*.yml` pattern that the hooks and the restore command search.
-- Keys: the memo's key names, with no header keys and no `status`.
-  - `done`: finished steps, one string each.
+- Keys: only `done`, `decisions` and `observations`. The archive has no header keys and no `status`.
+  - `done`: finished steps, one string each. A finished `in_progress` or `next` item moves here.
   - `decisions` and `observations`: items that belong to finished work, when no `in_progress`, `next` or `open_questions` item depends on them.
   - `failed` stays in the memo, because a failed approach still warns the next session.
 - Move an item, do not copy it: it lives in one file. The first write puts everything that is already finished straight into the archive, and every later update moves what has just been finished.
@@ -178,7 +178,7 @@ Before relying on a memo:
 2. Compare `branch` and `head` with `git branch --show-current` and `git rev-parse HEAD`. If they differ, run `git log <head>..HEAD --oneline` and `git status --short`, then decide whether `in_progress` still holds.
 3. Do not copy an unverified cause (`basis: unverified`) into an Issue, a PR or a spec: those outlive the session. That includes a hedged or reworded copy such as "this may be a race condition" or "the likely cause is...". Write what was observed, say the cause is not confirmed, and leave the guess out. Collect more samples first.
 
-When the resumed work is finished, set `status: done` and run the check as in "After a partial edit".
+When the resumed work is finished, move its finished items to the archive ("The archive"). Then set `status: done` and run the check as in "After a partial edit".
 
 ## Closing message
 

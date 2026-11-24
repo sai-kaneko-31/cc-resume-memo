@@ -202,11 +202,17 @@ case "$yaml_status" in
   3) echo "YAML: NOT CHECKED (no ruby, and no python3 with PyYAML)" ;;
 esac
 
-# Count the top-level items under "done:" in an open memo. An item starts with
-# "- " at indent 0 to 2; the text of a block scalar is indented deeper, so a
-# "- " inside it is not counted.
+# Count the top-level items under "done:" in an open memo. The first "- " line
+# under the key sets the item indent, and only "- " lines at that indent count:
+# the text of a block scalar is indented deeper than its item, so a "- " inside
+# it is not counted. A comment at column 0 does not end the list.
 if grep -q '^status: open[[:space:]]*$' "$file"; then
-  done_count=$(awk '/^done:/ {f=1; next} /^[^[:space:]-]/ {f=0} f && /^ ? ?- / {n++} END {print n+0}' "$file")
+  done_count=$(awk '
+    /^done:/ { f = 1; ind = ""; next }
+    /^[^[:space:]#-]/ { f = 0 }
+    f && /^ *- / { match($0, /^ */); if (ind == "") ind = RLENGTH; if (RLENGTH == ind) n++ }
+    END { print n + 0 }
+  ' "$file")
   if [ "$done_count" -gt 0 ]; then
     echo "Note: done: holds $done_count item(s). Finished items belong in the archive (done/<memo file name>), not in an open memo."
   fi

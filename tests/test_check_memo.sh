@@ -92,6 +92,10 @@ printf 'task: x\nstatus: open\ngoal: see https://example.com/page#section\n' > "
 # Finished items belong in the archive (done/<memo file name>), so an open memo that still has some gets a note.
 # The first item is a block scalar with a "- " line inside it: only the two top-level items count.
 printf 'task: x\nstatus: open\ndone:\n  - |\n    first: line\n    - dash inside the text\n  - second\nnext:\n  - go on\n' > "$tmp/open-with-done.yml"
+# Items written at indent 0: the text of a block scalar is indented 2 and starts with "- ", and must not count.
+printf 'task: x\nstatus: open\ndone:\n- |\n  - dash inside the text\n- b\nnext:\n  - go on\n' > "$tmp/open-done-indent0.yml"
+# A comment at column 0 between two items does not end the list.
+printf 'task: x\nstatus: open\ndone:\n  - a\n# a comment\n  - b\nnext:\n  - go on\n' > "$tmp/open-done-comment.yml"
 printf 'task: x\nstatus: done\ndone:\n  - finished one\n' > "$tmp/closed-with-done.yml"
 printf 'task: x\nstatus: open\nnext:\n  - go on\n' > "$tmp/open-without-done.yml"
 printf 'task: x\nstatus: open\ndone: []\nnext:\n  - go on\n' > "$tmp/open-empty-done.yml"
@@ -115,6 +119,9 @@ run_runtime_cases() {
   expect "[$rt] YAML failure wins over a secret" 1 "Possible secrets" -- env RESUME_MEMO_YAML="$rt" "$check" "$tmp/syntax-and-secret.yml"
   expect "[$rt] --keys" 0 "task,created,status,cwd,branch,head,goal,done,next,decisions,observations" -- env RESUME_MEMO_YAML="$rt" "$check" --keys "$tmp/valid.yml"
   expect "[$rt] note: an open memo that still has done items" 0 "Note: done: holds 2 item(s)" -- env RESUME_MEMO_YAML="$rt" "$check" "$tmp/open-with-done.yml"
+  expect "[$rt] note: items at indent 0 are counted once each" 0 "Note: done: holds 2 item(s)" -- env RESUME_MEMO_YAML="$rt" "$check" "$tmp/open-done-indent0.yml"
+  # The load check reports a column-0 comment as lost text (exit 1); the note still counts both items.
+  expect "[$rt] note: a column-0 comment does not end the list" 1 "Note: done: holds 2 item(s)" -- env RESUME_MEMO_YAML="$rt" "$check" "$tmp/open-done-comment.yml"
   expect "[$rt] note names the archive path rule" 0 "done/<memo file name>" -- env RESUME_MEMO_YAML="$rt" "$check" "$tmp/open-with-done.yml"
   expect_lacks "[$rt] no note for a finished memo" 0 "Note:" -- env RESUME_MEMO_YAML="$rt" "$check" "$tmp/closed-with-done.yml"
   expect_lacks "[$rt] no note for an open memo without done" 0 "Note:" -- env RESUME_MEMO_YAML="$rt" "$check" "$tmp/open-without-done.yml"
