@@ -19,4 +19,8 @@ echo "Read the one whose cwd and branch match this session before continuing. A 
 while IFS= read -r f; do
   echo "--- $f"
   grep -m 6 -E '^(task|created|cwd|branch|head|goal): ' "$f" | tr -d '\000-\010\013-\037'
+  archive=$(resume_memo_archive_path "$f")
+  if [ -f "$archive" ]; then
+    echo "archive: $archive (finished items, not needed to continue; open it only when asked what was done, when a next step points at finished work, or before adding items to it)"
+  fi
 done <<< "$memos"

@@ -18,6 +18,13 @@ resume_memo_project() {
   fi
 }
 
+# Path of the archive that belongs to memo $1: the same file name in a "done"
+# directory next to the memo. The memo glob below does not recurse, so it never
+# lists an archive. The archive may not exist.
+resume_memo_archive_path() {
+  printf '%s/done/%s\n' "$(dirname "$1")" "$(basename "$1")"
+}
+
 # Print the paths of the memos of project $1 that have "status: open", oldest
 # first. File names start with a timestamp, so name order is time order.
 resume_memo_open_memos() {
