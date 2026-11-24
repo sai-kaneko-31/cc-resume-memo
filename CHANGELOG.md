@@ -8,14 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-- `RESUME_MEMO_ISSUES_DIR`: the directory of the known-issues entries, for a directory the user already fills by hand. A leading `~/` is expanded. The default stays `known-issues/` inside the memo directory.
-- `known-issue.sh search <word>...` prints the matching lines of every `.md` file in that directory, notes written by hand included, so that a cause is looked up before an entry is added. `known-issue.sh dir` prints the directory.
+- `RESUME_MEMO_ISSUES_DIR`: the directory of the known-issues entries, for a directory the user already fills by hand. A leading `~/` is expanded, and `~name/` is refused with exit 64. The default stays `known-issues/` inside the memo directory.
+- `known-issue.sh search <word>...` prints the lines that contain any of the words, ignoring case, from the `.md` files under that directory. Notes written by hand are searched too, and at most 20 lines are printed. The skill uses it to look a cause up before it adds an entry. `known-issue.sh dir` prints the directory.
 - The skill records known issues without writing a memo when the user asks to record them.
 
 ### Changed
 
 - The log covers the failures of the whole session, not only the failures of the skill's own steps. A cause that is already written down in a note written by hand is reported to the user and not added again.
 - Only a file whose first line starts with `rule: ` is an entry. `list` skips other files, `recur` and `add` leave them unchanged, and the "more than 30 entries" note counts entries only.
+- `add` and `recur` never write through or replace a symbolic link. A new entry gets the file mode that the umask gives, and a repeat keeps the mode of the entry.
 
 ## [0.2.0] - 2026-11-24
 

@@ -3,7 +3,8 @@ name: does-not-record-a-one-off-fix
 description: >-
   The recap has a bug that was fixed with a one-line change, and nothing that
   went wrong in the work itself. The skill must save the memo and must not
-  record a known issue.
+  record a known issue, in the directory named by RESUME_MEMO_ISSUES_DIR or in
+  the default one.
 tags: [known-issues]
 execution:
   max_turns: 16
@@ -14,13 +15,17 @@ execution:
     - Next: add a test for the empty-file case in tests/test_parse.py, then fix the reader in src/parse.py:30.
     - Branch fix/parser at commit 4d5e6f7, directory /work/logtool.
 
-    I'm about to run /compact. Save the session state to ./out/memo.yml (create the directory). Record known issues in ./out/known-issues: run the plugin's scripts with RESUME_MEMO_DIR=./out and RESUME_MEMO_ISSUES_DIR=./out/known-issues.
+    I'm about to run /compact. Save the session state to ./out/memo.yml (create the directory). Record known issues in ./issues: run the plugin's scripts with RESUME_MEMO_DIR=./out and RESUME_MEMO_ISSUES_DIR=./issues.
 graders:
   # Run with --allow-tools Write Bash. Without them the negative check passes whatever the skill does.
   - name: memo-written
     type: file_exists
     path: out/memo.yml
   - name: no-known-issue-recorded
+    type: file_exists
+    path: "issues/*"
+    exists: false
+  - name: none-in-the-default-directory
     type: file_exists
     path: "out/known-issues/*"
     exists: false

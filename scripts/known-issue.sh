@@ -3,7 +3,7 @@
 # in one directory: <memo dir>/known-issues by default, or RESUME_MEMO_ISSUES_DIR.
 #
 #   known-issue.sh list [--max N]       one line per entry, most repeated first (default N = 20)
-#   known-issue.sh search <word>...     lines of every .md file in the directory that contain a word
+#   known-issue.sh search <word>...     matching lines of the .md files in the directory
 #   known-issue.sh add <slug>           create an entry from stdin; see "Entry" below
 #   known-issue.sh recur <slug> <note>  count another occurrence of an existing entry
 #   known-issue.sh dir                  print the directory
@@ -16,7 +16,12 @@
 # An entry is a file whose first line starts with "rule: ". The directory may also
 # hold files that someone wrote by hand (notes by area, archives). They are not
 # entries: "list" skips them, "search" reads them, and "add" and "recur" never
-# change them.
+# change them. "add" and "recur" never write through or replace a symbolic link.
+#
+# "search" prints "path:line:text" for every line of every .md file under the
+# directory (subdirectories too) that contains one of the words, ignoring case.
+# It prints at most 20 lines and then "(+N more matching lines)", and nothing when
+# no line matches. It exits 0 either way.
 #
 # Exit codes
 #   0   done
@@ -24,13 +29,15 @@
 #       entry could not be written, or the secret scan could not run
 #   2   secret-like text found, nothing was written (the output names the pattern and the line)
 #   4   add: a file with this slug already exists. The message says whether it is
-#       an entry (use "recur") or another file (choose another slug)
-#   5   recur: no entry with this slug (a file that is not an entry counts as none)
-#   64  usage error, or an entry that does not have the required lines
+#       an entry (use "recur"), a symbolic link or another file (choose another slug)
+#   5   recur: no entry with this slug (a file that is not an entry, and a symbolic
+#       link, count as none)
+#   64  usage error, an entry that does not have the required lines, or
+#       RESUME_MEMO_ISSUES_DIR that starts with ~ and a user name
 #
 # Environment
-#   RESUME_MEMO_ISSUES_DIR  directory of the entries. A leading ~/ is expanded with HOME.
-#                           Empty or unset: <memo dir>/known-issues
+#   RESUME_MEMO_ISSUES_DIR  directory of the entries. A leading ~ or ~/ is expanded with
+#                           HOME; ~name is refused. Empty or unset: <memo dir>/known-issues
 #   RESUME_MEMO_DIR         memo directory, the same variable the other scripts read
 #   RESUME_MEMO_TODAY       date to write instead of today (YYYY-MM-DD), mainly for the tests
 
@@ -41,22 +48,31 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/lib-find-memos.sh"
 
 # The directory of the entries. A settings file that sets the variable may not
-# expand a leading ~, so it is expanded here.
+# expand a leading ~, so it is expanded here. "~name/x" is not a home directory
+# of this process, and as a relative path it would create a directory named "~name".
 resolve_issues_dir() {
   local d="${RESUME_MEMO_ISSUES_DIR:-}"
   if [ -z "$d" ]; then
     printf '%s\n' "$(resume_memo_dir)/known-issues"
-    return
+    return 0
   fi
   # shellcheck disable=SC2088  # the patterns are a literal "~", not a home directory
   case "$d" in
     "~") d="$HOME" ;;
     "~/"*) d="$HOME/${d#\~/}" ;;
+    "~"*)
+      echo "known-issue.sh: RESUME_MEMO_ISSUES_DIR ($d) starts with ~ and a user name. Only ~ and ~/ are expanded, so write the full path." >&2
+      return 1
+      ;;
   esac
+  # A trailing slash would double up in the paths that "search" prints.
+  while [ "${#d}" -gt 1 ] && [ "${d%/}" != "$d" ]; do
+    d="${d%/}"
+  done
   printf '%s\n' "$d"
 }
 
-issues_dir=$(resolve_issues_dir)
+issues_dir=$(resolve_issues_dir) || exit 64
 today="${RESUME_MEMO_TODAY:-$(date +%Y-%m-%d)}"
 max_rule=200
 cap_note=30
@@ -101,6 +117,18 @@ make_new_file() {
     new_file=""
     fail_write "$issues_dir"
   }
+}
+
+# mktemp makes a file that only its owner can read. A file that replaces another
+# one keeps that file's mode; a new file gets the mode that the umask gives a
+# file the user wrote (the default for a note written by hand).
+set_mode() { # <file> [<file whose mode to copy>]
+  local mode=""
+  if [ -n "${2:-}" ]; then
+    mode=$(stat -c %a "$2" 2> /dev/null || stat -f %Lp "$2" 2> /dev/null)
+  fi
+  [ -n "$mode" ] || mode=$(printf '%o' $((0666 & ~$(umask))))
+  chmod "$mode" "$1" 2> /dev/null || true
 }
 
 valid_slug() {
@@ -185,11 +213,12 @@ cmd_list() {
   fi
 }
 
-# Lines of every .md file in the directory (entries and notes written by hand)
+# Lines of the .md files under the directory (entries and notes written by hand)
 # that contain one of the words, ignoring case. Use it to see whether a cause is
-# already written down before adding an entry.
+# already written down before adding an entry. It needs no temporary directory,
+# so an empty result always means that nothing matched.
 cmd_search() {
-  local term total
+  local term
   [ "$#" -ge 1 ] || usage
   for term in "$@"; do
     [ -n "$term" ] || usage
@@ -199,13 +228,11 @@ cmd_search() {
   for term in "$@"; do
     args+=(-e "$term")
   done
-  make_tmp
-  grep -r -I -n -i -F --include='*.md' "${args[@]}" "$issues_dir" 2> /dev/null | tr -d '\000-\010\013-\037' | cut -c 1-300 > "$tmp/hits"
-  total=$(wc -l < "$tmp/hits" | tr -d ' ')
-  head -n "$max_hits" "$tmp/hits"
-  if [ "$total" -gt "$max_hits" ]; then
-    echo "(+$((total - max_hits)) more matching lines)"
-  fi
+  # The trailing slash makes "grep -r" enter the directory when it is a symbolic
+  # link: BSD grep does not follow a link that is given without it.
+  grep -r -I -n -i -F --include='*.md' "${args[@]}" "$issues_dir/" 2> /dev/null \
+    | tr -d '\000-\010\013-\037' | cut -c 1-300 \
+    | awk -v max="$max_hits" 'NR <= max { print } END { if (NR > max) print "(+" NR - max " more matching lines)" }'
   exit 0
 }
 
@@ -238,6 +265,11 @@ cmd_add() {
   scan_or_exit "$tmp/entry"
 
   target="$issues_dir/$slug.md"
+  # A broken link is not "-e", and mv would replace it with the new file.
+  if [ -L "$target" ]; then
+    echo "known-issue.sh: $slug.md is a symbolic link. It was not changed. Choose another slug." >&2
+    exit 4
+  fi
   if [ -e "$target" ]; then
     if is_entry "$target"; then
       echo "known-issue.sh: $slug exists. If the cause is the same, count a repeat with: known-issue.sh recur $slug \"<note>\". If the cause is different, use another slug." >&2
@@ -248,6 +280,7 @@ cmd_add() {
   fi
   mkdir -p "$issues_dir" || fail_write "$issues_dir"
   make_new_file
+  set_mode "$new_file"
   {
     printf 'rule: %s\ncount: 1\nfirst_seen: %s\nlast_seen: %s\n' "$rule" "$today" "$today"
     sed 1d "$tmp/entry"
@@ -279,6 +312,8 @@ cmd_recur() {
     exit 64
   fi
   target="$issues_dir/$slug.md"
+  # mv would replace the link itself with a plain file, and the file it points to would stay as it was.
+  [ ! -L "$target" ] || { echo "known-issue.sh: $slug.md is a symbolic link. It was not changed." >&2; exit 5; }
   [ -f "$target" ] || { echo "known-issue.sh: no entry named $slug" >&2; exit 5; }
   is_entry "$target" || { echo "known-issue.sh: $slug.md is not a known-issues entry (its first line is not 'rule: ...'). It was not changed." >&2; exit 5; }
   make_tmp
@@ -294,6 +329,7 @@ cmd_recur() {
   # read_count and read_last_seen read). A line that is missing is added after
   # line 1, which is the rule line.
   make_new_file
+  set_mode "$new_file" "$target"
   awk -v c="$new" -v d="$today" -v need_c="$need_c" -v need_l="$need_l" '
     /^count:/ && !need_c && !hc { print "count: " c; hc = 1; next }
     /^last_seen:/ && !need_l && !hl { print "last_seen: " d; hl = 1; next }

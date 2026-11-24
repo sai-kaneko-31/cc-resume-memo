@@ -426,6 +426,121 @@ if [ "$out" = "$tmp/memo-y/known-issues" ]; then report "dir: the default is kno
 out=$(cd "$tmp" && RESUME_MEMO_ISSUES_DIR='~/ki-home' HOME="$tmp/home" bash -c 'printf "%s" "$1" | bash "$2" add tilde-entry' _ "$entry" "$ki" 2>&1)
 if [ -f "$tmp/home/ki-home/tilde-entry.md" ]; then report "dir: add writes under the expanded ~/ directory" 0; else report "dir: add writes under the expanded ~/ directory" 1 "$out"; fi
 
+# --- search needs no temporary directory, so an empty result means that nothing matched
+TMPDIR="$tmp/no-such-tmp" run_shared "" search "block scalar"
+expect_rc "search: works when TMPDIR does not exist" 0
+has "search: still prints the matches when TMPDIR does not exist" "shared-first.md"
+
+# --- search lists one more line than the cap only as a remainder, and keeps paths clean
+run_shared "" search "plain value"
+if [ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" -eq 21 ]; then report "search: prints 20 lines and one remainder line" 0; else report "search: prints 20 lines and one remainder line" 1 "$(printf '%s\n' "$out" | wc -l)"; fi
+out=$(RESUME_MEMO_ISSUES_DIR="$shared/" bash "$ki" search "plain value" 2>&1 </dev/null)
+if printf '%s' "$out" | grep -q '//'; then report "search: a trailing slash in the setting does not double up in the paths" 1 "$out"; else report "search: a trailing slash in the setting does not double up in the paths" 0; fi
+out=$(RESUME_MEMO_ISSUES_DIR="$shared//" bash "$ki" dir 2>&1 </dev/null)
+if [ "$out" = "$shared" ]; then report "dir: trailing slashes are dropped" 0; else report "dir: trailing slashes are dropped" 1 "$out"; fi
+
+# --- a directory that is a symbolic link (BSD "grep -r" does not enter one that is given as it is)
+real="$tmp/real-issues"
+mkdir -p "$real"
+printf '%s' "$entry" | RESUME_MEMO_ISSUES_DIR="$real" bash "$ki" add linked-entry > /dev/null 2>&1
+ln -s "$real" "$tmp/link-issues"
+run_link() { # <stdin text> <args...>
+  local input="$1"
+  shift
+  out=$(printf '%s' "$input" | RESUME_MEMO_ISSUES_DIR="$tmp/link-issues" RESUME_MEMO_TODAY=2026-11-24 bash "$ki" "$@" 2>&1)
+  rc=$?
+}
+run_link "" search "plain value"
+has "symlinked dir: search finds the entry" "linked-entry.md"
+run_link "" list
+has "symlinked dir: list shows the entry" "linked-entry x1"
+run_link "$entry" add linked-second
+if [ -f "$real/linked-second.md" ]; then report "symlinked dir: add writes into the directory it points to" 0; else report "symlinked dir: add writes into the directory it points to" 1 "$out"; fi
+run_link "" recur linked-entry "again"
+expect_rc "symlinked dir: recur counts a repeat" 0
+
+# --- a symbolic link in place of an entry file is never written through or replaced
+syml="$tmp/syml"
+mkdir -p "$syml"
+ln -s "$tmp/nowhere.md" "$syml/dangling.md"
+out=$(printf '%s' "$entry" | RESUME_MEMO_ISSUES_DIR="$syml" bash "$ki" add dangling 2>&1)
+rc=$?
+expect_rc "symlink: add over a broken link exits 4" 4
+has "symlink: add says it is a symbolic link" "symbolic link"
+if [ -L "$syml/dangling.md" ] && [ ! -e "$tmp/nowhere.md" ]; then report "symlink: a refused add leaves the broken link as it was" 0; else report "symlink: a refused add leaves the broken link as it was" 1; fi
+printf 'rule: kept\ncase: c\nprevention: p\ncount: 1\nfirst_seen: 2026-01-01\nlast_seen: 2026-01-01\n' > "$tmp/elsewhere.md"
+ln -s "$tmp/elsewhere.md" "$syml/pointing.md"
+link_sum=$(cksum "$tmp/elsewhere.md")
+out=$(RESUME_MEMO_ISSUES_DIR="$syml" bash "$ki" recur pointing "again" 2>&1 </dev/null)
+rc=$?
+expect_rc "symlink: recur on a link to an entry exits 5" 5
+if [ -L "$syml/pointing.md" ] && [ "$(cksum "$tmp/elsewhere.md")" = "$link_sum" ]; then report "symlink: a refused recur leaves the link and its target as they were" 0; else report "symlink: a refused recur leaves the link and its target as they were" 1; fi
+out=$(RESUME_MEMO_ISSUES_DIR="$syml" bash "$ki" recur dangling "again" 2>&1 </dev/null)
+rc=$?
+expect_rc "symlink: recur on a broken link exits 5" 5
+
+# --- other shapes of file in the directory
+odd="$tmp/odd"
+mkdir -p "$odd/folder.md"
+printf 'rule: inside a folder named like a note\ncase: c\nprevention: p\n' > "$odd/folder.md/inner.md"
+printf 'rule: crlf rule\r\ncase: c\r\nprevention: p\r\ncount: 2\r\nfirst_seen: 2026-01-01\r\nlast_seen: 2026-01-02\r\n' > "$odd/crlf-entry.md"
+printf '\357\273\277rule: bom rule\ncase: c\nprevention: p\n' > "$odd/bom.md"
+printf 'plain value\0binary\n' > "$odd/binary.md"
+run_odd() { # <stdin text> <args...>
+  local input="$1"
+  shift
+  out=$(printf '%s' "$input" | RESUME_MEMO_ISSUES_DIR="$odd" RESUME_MEMO_TODAY=2026-11-24 bash "$ki" "$@" 2>&1)
+  rc=$?
+}
+run_odd "" list
+expect_rc "odd files: list exits 0 with a folder named *.md in the directory" 0
+has "odd files: list shows the entry with CRLF line ends, with its count and date" "crlf-entry x2 2026-01-02: crlf rule"
+if printf '%s' "$out" | grep -q "$(printf '\r')"; then report "odd files: list prints no carriage return" 1; else report "odd files: list prints no carriage return" 0; fi
+lacks "odd files: list skips a folder named *.md" "folder"
+lacks "odd files: list skips a file that starts with a byte order mark" "bom"
+run_odd "" recur crlf-entry "again"
+expect_rc "odd files: recur counts an entry with CRLF line ends" 0
+has "odd files: the count goes from 2 to 3" "count 3"
+run_odd "$entry" add folder
+expect_rc "odd files: add over a folder named like a note exits 4" 4
+run_odd "$entry" add bom
+expect_rc "odd files: add over a file that starts with a byte order mark exits 4 (it is not an entry)" 4
+has "odd files: the message says it is not an entry" "not a known-issues entry"
+run_odd "" recur bom "again"
+expect_rc "odd files: recur on a file that starts with a byte order mark exits 5" 5
+run_odd "" search "plain value"
+lacks "odd files: search skips a binary file" "binary.md"
+run_odd "" search "inside a folder"
+has "odd files: search reads a note in a subdirectory" "inner.md"
+
+# --- ~name is not expanded, and must not create a directory named "~name"
+cwd="$tmp/cwd-tilde"
+mkdir -p "$cwd"
+for cmd in list dir search; do
+  # shellcheck disable=SC2088  # a literal "~bob" is the input under test
+  out=$(cd "$cwd" && RESUME_MEMO_ISSUES_DIR='~bob/x' bash "$ki" "$cmd" word 2>&1 </dev/null)
+  rc=$?
+  expect_rc "tilde user: $cmd exits 64" 64
+done
+has "tilde user: the message says what to write instead" "full path"
+# shellcheck disable=SC2088  # a literal "~bob" is the input under test
+out=$(cd "$cwd" && printf '%s' "$entry" | RESUME_MEMO_ISSUES_DIR='~bob/x' bash "$ki" add tilde-user 2>&1)
+rc=$?
+expect_rc "tilde user: add exits 64" 64
+if [ -z "$(ls -A "$cwd")" ]; then report "tilde user: no directory is created in the working directory" 0; else report "tilde user: no directory is created in the working directory" 1 "$(ls -A "$cwd")"; fi
+
+# --- the file mode follows the umask, and a repeat keeps the mode of the entry
+mode_of() { stat -c %a "$1" 2> /dev/null || stat -f %Lp "$1"; }
+modes="$tmp/modes"
+mkdir -p "$modes"
+(umask 022; printf '%s' "$entry" | RESUME_MEMO_ISSUES_DIR="$modes" bash "$ki" add mode-022 > /dev/null 2>&1)
+(umask 077; printf '%s' "$entry" | RESUME_MEMO_ISSUES_DIR="$modes" bash "$ki" add mode-077 > /dev/null 2>&1)
+if [ "$(mode_of "$modes/mode-022.md")" = "644" ]; then report "mode: umask 022 gives 644" 0; else report "mode: umask 022 gives 644" 1 "$(mode_of "$modes/mode-022.md")"; fi
+if [ "$(mode_of "$modes/mode-077.md")" = "600" ]; then report "mode: umask 077 gives 600" 0; else report "mode: umask 077 gives 600" 1 "$(mode_of "$modes/mode-077.md")"; fi
+chmod 640 "$modes/mode-022.md"
+(umask 077; RESUME_MEMO_ISSUES_DIR="$modes" bash "$ki" recur mode-022 "again" > /dev/null 2>&1 </dev/null)
+if [ "$(mode_of "$modes/mode-022.md")" = "640" ]; then report "mode: a repeat keeps the mode of the entry" 0; else report "mode: a repeat keeps the mode of the entry" 1 "$(mode_of "$modes/mode-022.md")"; fi
+
 # --- usage
 run "" nonsense
 expect_rc "usage: an unknown command exits 64" 64
