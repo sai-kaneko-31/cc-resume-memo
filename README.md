@@ -53,12 +53,14 @@ Memos are written to `~/.claude/resume-memos/<YYYYMMDD-HHMM>-<project>-<task-slu
 
 ## Known issues
 
-The skill keeps a small log of its own failures, so the next run does not repeat them. It is separate from the memos: a memo is the state of one session, an entry is what to do differently next time.
+The skill keeps a log of the failures that happened in a session, so that a later session can avoid them. It is separate from the memos: a memo is the state of one session, an entry is what to do differently next time.
 
-- One file per failure: `~/.claude/resume-memos/known-issues/<slug>.md`. A file has a one-line `rule:`, a `case:` and a `prevention:`, plus `count`, `first_seen` and `last_seen`. A repeat of the same cause adds to the count and appends a `recurrence:` line instead of creating a second file.
-- Before writing a memo, and before relying on one in a restore, the skill runs `scripts/known-issue.sh list`. It prints one line per entry, the most repeated first, at most 20 entries and then a `(+N more ...)` line, and nothing when there are no entries. The skill opens an entry's file only when the rule line is not enough.
-- After a run in which a step failed or had to be redone, and the cause can happen again, the skill records it. A slip with no general cause, such as a mistyped path, is not recorded.
-- Only failures of this skill's own work (writing, checking, updating or restoring a memo) are recorded. This is not a log of everything that went wrong in a session. The entries live only under the memo directory, even when a memo is saved to a path you named.
+- One file per failure: `<slug>.md` in one directory. A file has a one-line `rule:`, a `case:` and a `prevention:`, plus `count`, `first_seen` and `last_seen`. A repeat of the same cause adds to the count and appends a `recurrence:` line instead of creating a second file.
+- The directory is `known-issues/` inside the memo directory (`~/.claude/resume-memos/known-issues` by default). Set `RESUME_MEMO_ISSUES_DIR` to use another one, for example a directory you already fill by hand. A leading `~/` is expanded. `scripts/known-issue.sh dir` prints the directory in use.
+- The skill records failures of the whole session when you announce `/compact` or `/clear` or ask it to save, and also when you ask it to record known issues without a memo. It records a failure that has a general cause and that one step would prevent. It skips a bug fix that the commit history shows, anything that belongs to one session only, and a slip with no general cause, such as a mistyped path.
+- Before it records, the skill runs `scripts/known-issue.sh search <words>`, which prints the matching lines of every `.md` file in the directory. A cause that is already written down is counted on its entry, or, if it is in a note you wrote by hand, left alone and reported to you.
+- Only files whose first line starts with `rule: ` are entries. Other files in the directory, such as notes you wrote by hand, are never listed, counted or changed.
+- Before writing a memo, and before relying on one in a restore, the skill runs `scripts/known-issue.sh list`. It prints one line per entry, the most repeated first, at most 20 entries and then a `(+N more ...)` line, and nothing when there are no entries. To read the rule lines in another session, run `rg -H -m1 '^rule: ' <directory>/*.md`.
 - Entries are scanned for secret-like text before they are written, with the same patterns as the memo check. It is a safety net, not a guarantee. When an entry has been moved into your `CLAUDE.md` or into the skill's text, delete its file.
 
 ## The archive

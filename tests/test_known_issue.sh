@@ -2,6 +2,9 @@
 # Tests for scripts/known-issue.sh.
 set -u
 
+# The settings of the machine may export RESUME_MEMO_ISSUES_DIR. The tests must not write there.
+unset RESUME_MEMO_ISSUES_DIR
+
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 ki="$root/scripts/known-issue.sh"
 tmp=$(mktemp -d)
@@ -207,12 +210,14 @@ write_entry oct10 $'rule: a\ncount: 010\nlast_seen: 2026-11-01\ncase: c\nprevent
 run "" recur oct10 "n"
 file_has "recur: 010 becomes 11, not 9" "$issues/oct10.md" 'count: 11'
 
+# A file whose first line is not "rule: " is not an entry, even when it has a count line.
 write_entry count-first $'count: 3\nrule: a\ncase: c\nprevention: p\n'
+before_count_first=$(cksum "$issues/count-first.md")
 run "" recur count-first "n"
-if [ "$(head -n 1 "$issues/count-first.md")" = 'count: 4' ]; then report "recur: a count on line 1 is updated" 0; else report "recur: a count on line 1 is updated" 1 "$(head -n 1 "$issues/count-first.md")"; fi
-file_has "recur: the missing last_seen is added" "$issues/count-first.md" 'last_seen: 2026-11-24'
+expect_rc "recur: a file whose first line is a count line is not an entry (exit 5)" 5
+if [ "$(cksum "$issues/count-first.md")" = "$before_count_first" ]; then report "recur: that file is left byte-identical" 0; else report "recur: that file is left byte-identical" 1; fi
 run "" list
-has "list: the entry with the count on line 1 shows x4" "count-first x4"
+lacks "list: a file whose first line is a count line is not listed" "count-first"
 
 write_entry count-words $'rule: a\ncount: 3 times\nlast_seen: 2026-11-01\ncase: c\nprevention: p\n'
 run "" recur count-words "n"
@@ -222,9 +227,8 @@ file_has "recur: the number after the words is counted from 3" "$issues/count-wo
 
 : > "$issues/empty-entry.md"
 run "" recur empty-entry "n"
-expect_rc "recur: an empty file is counted" 0
-file_has "recur: an empty file gets a count" "$issues/empty-entry.md" 'count: 2'
-file_has "recur: an empty file gets last_seen" "$issues/empty-entry.md" 'last_seen: 2026-11-24'
+expect_rc "recur: an empty file is not an entry (exit 5)" 5
+if [ ! -s "$issues/empty-entry.md" ]; then report "recur: an empty file stays empty" 0; else report "recur: an empty file stays empty" 1; fi
 
 write_entry no-newline $'rule: a\ncount: 1\nlast_seen: 2026-11-01\ncase: c\nprevention: p'
 run "" recur no-newline "n"
@@ -332,6 +336,95 @@ mkdir -p "$tmp/empty-memos/known-issues"
 out=$(RESUME_MEMO_DIR="$tmp/empty-memos" TMPDIR="$tmp/no-such-tmp" bash "$ki" list 2>&1 </dev/null)
 rc=$?
 expect_rc "tmpdir: list needs no temporary directory for an empty known-issues directory" 0
+
+# --- a directory that also holds files the user wrote by hand (area files)
+# RESUME_MEMO_ISSUES_DIR points the log at a directory the user already fills: its files have no
+# "rule:" first line, and the script must neither list them, count them, nor change them.
+shared="$tmp/shared"
+mkdir -p "$shared"
+printf '# Known issues: sample（`~/git/sample`）の作業\n\nこのファイルは常時は読み込まれない。\n\n## 見出しの 1 件目\n\n事例: sample / 何か (2026-11-01)。内容。\n\n防止策: 確かめる。\n' > "$shared/sample.md"
+printf 'old archive text\n' > "$shared/_orig-20260101.md"
+before_sum=$(cksum "$shared/sample.md")
+run_shared() { # <stdin text> <args...>
+  local input="$1"
+  shift
+  out=$(printf '%s' "$input" | RESUME_MEMO_ISSUES_DIR="$shared" RESUME_MEMO_DIR="$tmp/unused-memos" RESUME_MEMO_TODAY=2026-11-24 bash "$ki" "$@" 2>&1)
+  rc=$?
+}
+
+run_shared "$entry" add shared-first
+expect_rc "shared dir: add writes into RESUME_MEMO_ISSUES_DIR" 0
+if [ -f "$shared/shared-first.md" ] && [ ! -e "$tmp/unused-memos" ]; then report "shared dir: the memo directory is not used" 0; else report "shared dir: the memo directory is not used" 1; fi
+run_shared "" list
+has "shared dir: list shows the entry" "shared-first x1"
+lacks "shared dir: list does not show the area file" "sample"
+lacks "shared dir: list does not show the archive file" "_orig"
+lacks "shared dir: list does not show a heading of an area file" "見出し"
+
+run_shared "" recur sample "n"
+expect_rc "shared dir: recur on an area file exits 5" 5
+has "shared dir: recur says it is not an entry" "not a known-issues entry"
+if [ "$(cksum "$shared/sample.md")" = "$before_sum" ]; then report "shared dir: a refused recur leaves the area file byte-identical" 0; else report "shared dir: a refused recur leaves the area file byte-identical" 1; fi
+
+run_shared "$entry" add sample
+expect_rc "shared dir: add with the name of an area file exits 4" 4
+has "shared dir: add says the file is not an entry" "not a known-issues entry"
+lacks "shared dir: add does not suggest recur for an area file" "known-issue.sh recur"
+if [ "$(cksum "$shared/sample.md")" = "$before_sum" ]; then report "shared dir: a refused add leaves the area file byte-identical" 0; else report "shared dir: a refused add leaves the area file byte-identical" 1; fi
+
+# --- the "too many entries" note counts entries only
+many="$tmp/many"
+mkdir -p "$many"
+for i in $(seq 1 40); do printf '# area %s\n\n## x\n' "$i" > "$many/area-$i.md"; done
+for i in $(seq 1 31); do
+  out=$(printf '%s' "$entry" | RESUME_MEMO_ISSUES_DIR="$many" bash "$ki" add "entry-$i" 2>&1)
+  if [ "$i" -eq 30 ]; then
+    if printf '%s' "$out" | grep -q '^Note:'; then report "note: 30 entries and 40 area files give no note" 1; else report "note: 30 entries and 40 area files give no note" 0; fi
+  fi
+  if [ "$i" -eq 31 ]; then
+    if printf '%s' "$out" | grep -q '^Note: 31 known issues'; then report "note: the 31st entry gives a note that counts 31" 0; else report "note: the 31st entry gives a note that counts 31" 1 "$out"; fi
+  fi
+done
+
+# --- search: find a cause in every file of the directory before adding an entry
+run_shared "" search "何か"
+has "search: finds a line of an area file" "sample.md"
+run_shared "" search "plain value"
+has "search: finds a line of an entry" "shared-first.md"
+run_shared "" search "NO-SUCH-WORD"
+expect_rc "search: no match exits 0" 0
+if [ -z "$out" ]; then report "search: no match prints nothing" 0; else report "search: no match prints nothing" 1 "$out"; fi
+run_shared "" search "PLAIN VALUE"
+has "search: ignores case" "shared-first.md"
+run_shared "" search "-h"
+expect_rc "search: a term that starts with a dash is a term" 0
+run_shared "" search
+expect_rc "search: no term exits 64" 64
+printf 'secret leftover plain value\n' > "$shared/.new.ABC123"
+run_shared "" search "leftover"
+if [ -z "$out" ]; then report "search: ignores a leftover .new file" 0; else report "search: ignores a leftover .new file" 1 "$out"; fi
+printf '%s\n' "line plain value" > "$shared/many-hits.md"
+for i in $(seq 1 30); do printf 'plain value %s\n' "$i" >> "$shared/many-hits.md"; done
+run_shared "" search "plain value"
+has "search: more than 20 matches end with a remainder line" "more matching lines"
+mkdir -p "$tmp/nodir"
+out=$(RESUME_MEMO_ISSUES_DIR="$tmp/nodir/missing" bash "$ki" search "x" 2>&1 </dev/null)
+rc=$?
+expect_rc "search: a missing directory exits 0" 0
+
+# --- dir: where the entries go, with a leading ~/ expanded
+run_shared "" dir
+if [ "$out" = "$shared" ]; then report "dir: prints RESUME_MEMO_ISSUES_DIR" 0; else report "dir: prints RESUME_MEMO_ISSUES_DIR" 1 "$out"; fi
+# shellcheck disable=SC2088  # a literal "~/" is the input under test
+out=$(cd "$tmp" && RESUME_MEMO_ISSUES_DIR='~/ki-home' HOME="$tmp/home" bash "$ki" dir 2>&1 </dev/null)
+if [ "$out" = "$tmp/home/ki-home" ]; then report "dir: a leading ~/ is expanded with HOME" 0; else report "dir: a leading ~/ is expanded with HOME" 1 "$out"; fi
+out=$(RESUME_MEMO_ISSUES_DIR='' RESUME_MEMO_DIR="$tmp/memo-x" bash "$ki" dir 2>&1 </dev/null)
+if [ "$out" = "$tmp/memo-x/known-issues" ]; then report "dir: an empty RESUME_MEMO_ISSUES_DIR falls back to the memo directory" 0; else report "dir: an empty RESUME_MEMO_ISSUES_DIR falls back to the memo directory" 1 "$out"; fi
+out=$(RESUME_MEMO_DIR="$tmp/memo-y" bash "$ki" dir 2>&1 </dev/null)
+if [ "$out" = "$tmp/memo-y/known-issues" ]; then report "dir: the default is known-issues inside the memo directory" 0; else report "dir: the default is known-issues inside the memo directory" 1 "$out"; fi
+# shellcheck disable=SC2088  # a literal "~/" is the input under test
+out=$(cd "$tmp" && RESUME_MEMO_ISSUES_DIR='~/ki-home' HOME="$tmp/home" bash -c 'printf "%s" "$1" | bash "$2" add tilde-entry' _ "$entry" "$ki" 2>&1)
+if [ -f "$tmp/home/ki-home/tilde-entry.md" ]; then report "dir: add writes under the expanded ~/ directory" 0; else report "dir: add writes under the expanded ~/ directory" 1 "$out"; fi
 
 # --- usage
 run "" nonsense

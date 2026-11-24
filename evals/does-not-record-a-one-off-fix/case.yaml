@@ -1,0 +1,26 @@
+schema_version: "1.1"
+name: does-not-record-a-one-off-fix
+description: >-
+  The recap has a bug that was fixed with a one-line change, and nothing that
+  went wrong in the work itself. The skill must save the memo and must not
+  record a known issue.
+tags: [known-issues]
+execution:
+  max_turns: 16
+  allowed_tools: [Read, Skill]
+  prompt: |
+    Where things stand on the log parser:
+    - Done: fixed a typo in src/parse.py:12, where `retrun` was written instead of `return`. The tests pass.
+    - Next: add a test for the empty-file case in tests/test_parse.py, then fix the reader in src/parse.py:30.
+    - Branch fix/parser at commit 4d5e6f7, directory /work/logtool.
+
+    I'm about to run /compact. Save the session state to ./out/memo.yml (create the directory). Record known issues in ./out/known-issues: run the plugin's scripts with RESUME_MEMO_DIR=./out and RESUME_MEMO_ISSUES_DIR=./out/known-issues.
+graders:
+  # Run with --allow-tools Write Bash. Without them the negative check passes whatever the skill does.
+  - name: memo-written
+    type: file_exists
+    path: out/memo.yml
+  - name: no-known-issue-recorded
+    type: file_exists
+    path: "out/known-issues/*"
+    exists: false

@@ -1,0 +1,50 @@
+schema_version: "1.1"
+name: records-a-failure-of-the-session
+description: >-
+  The recap has a failure that is not about the skill: a command that printed
+  the wrong thing because of a flag. The skill must record it as a known issue
+  in the directory named by RESUME_MEMO_ISSUES_DIR, with a one-line rule, a case
+  and a prevention.
+tags: [known-issues]
+execution:
+  max_turns: 16
+  allowed_tools: [Read, Skill]
+  prompt: |
+    Where things stand on the log parser:
+    - Next: add a test for the empty-file case in tests/test_parse.py, then fix the reader in src/parse.py:30.
+    - Branch fix/parser at commit 4d5e6f7, directory /work/logtool.
+
+    Earlier in this session I wanted to list the matching lines without the file names, so I ran `rg -h 'ERROR' logs`. It printed about 120 lines of ripgrep's help text and no matches, because in ripgrep `-h` is `--help`. The flag that hides the file names is `-I`.
+
+    I'm about to run /compact. Save the session state to ./out/memo.yml (create the directory). Record known issues in ./out/known-issues: run the plugin's scripts with RESUME_MEMO_DIR=./out and RESUME_MEMO_ISSUES_DIR=./out/known-issues. If you record a known issue, use the slug `rg-h-is-help`.
+graders:
+  # Run with --allow-tools Write Bash. Without Bash the scripts cannot run.
+  - name: memo-written
+    type: file_exists
+    path: out/memo.yml
+  - name: known-issue-written
+    type: file_exists
+    path: out/known-issues/rg-h-is-help.md
+  - name: rule-is-the-first-line
+    type: regex
+    target: { source: file, path: out/known-issues/rg-h-is-help.md }
+    pattern: '^rule: \S'
+  - name: starts-counting-at-one
+    type: regex
+    target: { source: file, path: out/known-issues/rg-h-is-help.md }
+    pattern: '^count: 1$'
+    flags: m
+  - name: has-a-case
+    type: regex
+    target: { source: file, path: out/known-issues/rg-h-is-help.md }
+    pattern: '^case: \S'
+    flags: m
+  - name: has-a-prevention
+    type: regex
+    target: { source: file, path: out/known-issues/rg-h-is-help.md }
+    pattern: '^prevention: \S'
+    flags: m
+  - name: names-the-right-flag
+    type: regex
+    target: { source: file, path: out/known-issues/rg-h-is-help.md }
+    pattern: '-I'

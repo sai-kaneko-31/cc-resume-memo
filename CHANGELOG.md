@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- `RESUME_MEMO_ISSUES_DIR`: the directory of the known-issues entries, for a directory the user already fills by hand. A leading `~/` is expanded. The default stays `known-issues/` inside the memo directory.
+- `known-issue.sh search <word>...` prints the matching lines of every `.md` file in that directory, notes written by hand included, so that a cause is looked up before an entry is added. `known-issue.sh dir` prints the directory.
+- The skill records known issues without writing a memo when the user asks to record them.
+
+### Changed
+
+- The log covers the failures of the whole session, not only the failures of the skill's own steps. A cause that is already written down in a note written by hand is reported to the user and not added again.
+- Only a file whose first line starts with `rule: ` is an entry. `list` skips other files, `recur` and `add` leave them unchanged, and the "more than 30 entries" note counts entries only.
+
 ## [0.2.0] - 2026-11-24
 
 First tagged release. Earlier commits carried the version 0.1.0 in `plugin.json` but were never tagged, so everything below is new to a user who installs this release.
