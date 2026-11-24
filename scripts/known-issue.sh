@@ -13,27 +13,31 @@
 # text. The script adds the "count:", "first_seen:" and "last_seen:" lines
 # after the rule, and "recur" appends a "recurrence: <date>: <note>" line.
 #
-# An entry is a file whose first line starts with "rule: ". The directory may also
-# hold files that someone wrote by hand (notes by area, archives). They are not
-# entries: "list" skips them, "search" reads them, and "add" and "recur" never
-# change them. "add" and "recur" never write through or replace a symbolic link.
+# An entry is a regular file whose first line starts with "rule: ". The directory
+# may also hold files that someone wrote by hand (notes by area, archives). They
+# are not entries: "list" skips them, "search" reads them, and "add" and "recur"
+# never change them. A symbolic link is not an entry, and "add" and "recur" never
+# write through or replace one.
 #
 # "search" prints "path:line:text" for every line of every .md file under the
 # directory (subdirectories too) that contains one of the words, ignoring case.
 # It prints at most 20 lines and then "(+N more matching lines)", and nothing when
-# no line matches. It exits 0 either way.
+# no line matches. It exits 0 when it read everything, so an empty output with
+# exit 0 means that nothing matched, and 1 when part of the directory was not readable.
 #
 # Exit codes
 #   0   done
 #   1   a temporary directory could not be made under TMPDIR (default /tmp), the
-#       entry could not be written, or the secret scan could not run
+#       entry could not be written, the secret scan could not run, or "search"
+#       could not read part of the directory
 #   2   secret-like text found, nothing was written (the output names the pattern and the line)
 #   4   add: a file with this slug already exists. The message says whether it is
 #       an entry (use "recur"), a symbolic link or another file (choose another slug)
 #   5   recur: no entry with this slug (a file that is not an entry, and a symbolic
 #       link, count as none)
-#   64  usage error, an entry that does not have the required lines, or
-#       RESUME_MEMO_ISSUES_DIR that starts with ~ and a user name
+#   64  usage error, an entry that does not have the required lines, or a
+#       RESUME_MEMO_ISSUES_DIR that starts with ~name, or with ~ while HOME is empty.
+#       Every command exits 64 for the setting, before it does anything else.
 #
 # Environment
 #   RESUME_MEMO_ISSUES_DIR  directory of the entries. A leading ~ or ~/ is expanded with
@@ -58,8 +62,14 @@ resolve_issues_dir() {
   fi
   # shellcheck disable=SC2088  # the patterns are a literal "~", not a home directory
   case "$d" in
-    "~") d="$HOME" ;;
-    "~/"*) d="$HOME/${d#\~/}" ;;
+    "~"|"~/"*)
+      if [ -z "${HOME:-}" ]; then
+        echo "known-issue.sh: RESUME_MEMO_ISSUES_DIR ($d) starts with ~ but HOME is not set. Write the full path." >&2
+        return 1
+      fi
+      d="${HOME%/}${d#\~}"
+      [ -n "$d" ] || d=/
+      ;;
     "~"*)
       echo "known-issue.sh: RESUME_MEMO_ISSUES_DIR ($d) starts with ~ and a user name. Only ~ and ~/ are expanded, so write the full path." >&2
       return 1
@@ -135,9 +145,11 @@ valid_slug() {
   [[ "$1" =~ ^[a-z0-9][a-z0-9-]{0,63}$ ]]
 }
 
-# An entry is a file whose first line starts with "rule: ".
+# An entry is a regular file whose first line starts with "rule: ". A symbolic
+# link is not one: "search" does not read a link inside the directory, so a
+# listed link would be an entry that the duplicate check cannot find.
 is_entry() {
-  [ -f "$1" ] && [ "$(head -n 1 "$1" | cut -c1-6)" = "rule: " ]
+  [ -f "$1" ] && [ ! -L "$1" ] && [ "$(head -n 1 "$1" | cut -c1-6)" = "rule: " ]
 }
 
 # Remove leading and trailing blanks.
@@ -218,7 +230,7 @@ cmd_list() {
 # already written down before adding an entry. It needs no temporary directory,
 # so an empty result always means that nothing matched.
 cmd_search() {
-  local term
+  local term status
   [ "$#" -ge 1 ] || usage
   for term in "$@"; do
     [ -n "$term" ] || usage
@@ -230,9 +242,18 @@ cmd_search() {
   done
   # The trailing slash makes "grep -r" enter the directory when it is a symbolic
   # link: BSD grep does not follow a link that is given without it.
+  # The filters run in the C locale: in a UTF-8 locale "tr" stops at a byte that
+  # is not valid UTF-8 and drops that line and the rest, with exit 0. A line
+  # longer than 300 bytes may be cut inside a multibyte character.
   grep -r -I -n -i -F --include='*.md' "${args[@]}" "$issues_dir/" 2> /dev/null \
-    | tr -d '\000-\010\013-\037' | cut -c 1-300 \
-    | awk -v max="$max_hits" 'NR <= max { print } END { if (NR > max) print "(+" NR - max " more matching lines)" }'
+    | LC_ALL=C tr -d '\000-\010\013-\037' | LC_ALL=C cut -c 1-300 \
+    | LC_ALL=C awk -v max="$max_hits" 'NR <= max { print } END { if (NR > max) print "(+" NR - max " more matching lines)" }'
+  status=${PIPESTATUS[0]}
+  # grep exits 1 for "no match" and 2 for an error such as an unreadable directory.
+  if [ "$status" -ge 2 ]; then
+    echo "known-issue.sh: search could not read part of $issues_dir; the matches above may be incomplete" >&2
+    exit 1
+  fi
   exit 0
 }
 

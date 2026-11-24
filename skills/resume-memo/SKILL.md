@@ -10,7 +10,7 @@ description: |
 
 Run only when the user asks to save the state now, announces /compact or /clear, or asks to record known issues. If the user is only discussing compaction or this skill, ask first.
 
-When the user only asks to record known issues, write no memo and no archive. Run the `list` command ("Known issues"), then "Recording" there for each failure of the session. End with item 4 of "Closing message" alone. When nothing qualifies, say that nothing was recorded and why, in one line.
+When the user only asks to record known issues, write no memo and no archive. Run the `list` command ("Known issues"), then "Recording" there for each failure of the session. End with item 4 of "Closing message" alone, and also tell the user about a `Note:` line or a failed record, as "Recording" says. When nothing qualifies, say that nothing was recorded and why, in one line.
 
 ## Steps
 
@@ -189,7 +189,7 @@ When the resumed work is finished, move its finished items to the archive ("The 
 
 ## Closing message
 
-Always tell the user the items below. After a run that only recorded known issues, tell item 4 alone.
+Always tell the user the items below. After a run that only recorded known issues, tell item 4 alone, plus a `Note:` line or a failed record if there was one ("Known issues").
 
 1. The full path of the memo, and the path of the archive if you wrote one.
 2. A sentence to paste as the first message after /clear or after compaction: "Read <full path> and resume the work". When you wrote `status: done`, skip this: the hooks do not list a done memo, and there is nothing to resume. Say that the memo is a record only.
@@ -202,7 +202,7 @@ If this is forgotten, nothing tells the user after the command runs that the mem
 
 A memo is the state of one session. A known issue is what to do differently the next time, in any work. Earlier sessions record the failures they hit, one file per failure, in one directory. `"${CLAUDE_PLUGIN_ROOT}/scripts/known-issue.sh" dir` prints it: `RESUME_MEMO_ISSUES_DIR` when that is set, otherwise `known-issues/` inside the memo directory. That stays so when the user names another path for one memo. The directory may also hold notes that the user wrote by hand. They are not entries: do not edit them. Failures of the whole session belong here (a command, a tool, a hook or a review that failed, or something the user had to correct), and so do failures of this skill's own steps. A failure of an earlier save in the same session counts. Do not copy a known issue into the memo's `failed` key: `failed` is for the task's own dead ends.
 
-Reading: run the `list` command before step 1 of a save, before relying on a memo in a restore, and before recording alone. It prints one entry per line, `<slug> x<count> <last_seen>: <rule>`, the most repeated first. At most 20 entries are printed, and when there are more, a last line `(+N more: ls <dir>)` says so. Nothing is printed when there is no entry. If `list` exits 1, it could not make a temporary directory. Set TMPDIR to a writable directory and run it again, and do not read that empty output as "no known issues". Apply a rule when it touches the step you are on. Open the entry's file only when the rule line is not enough.
+Reading: run the `list` command before step 1 of a save, before relying on a memo in a restore, and before recording alone. It prints one entry per line, `<slug> x<count> <last_seen>: <rule>`, the most repeated first. At most 20 entries are printed, and when there are more, a last line `(+N more: ls <dir>)` says so. Nothing is printed when there is no entry. If `list`, `search` or `dir` exits with anything but 0, it gave the reason on stderr and its empty output means nothing: do not read it as "no known issues" or "no match". Exit 1 on `list` is a temporary directory that could not be made (set TMPDIR to a writable directory). Exit 64 on any of them is a bad `RESUME_MEMO_ISSUES_DIR`: it starts with `~` and a user name, or with `~` while HOME is empty, so write the full path. Fix that and run it again. Apply a rule when it touches the step you are on. Open the entry's file only when the rule line is not enough.
 
 Recording (step 4 of a save; as soon as a restore finds that the memo misled you; or alone, without a memo, when the user asks to record known issues): record a failure when all three of these hold.
 
@@ -210,9 +210,9 @@ Recording (step 4 of a save; as soon as a restore finds that the memo misled you
 - It has a general cause, so it can happen again. A mistyped path does not.
 - You can say in one step what to do differently.
 
-Do not record a one-off bug fix that the commit history already shows, or something that belongs to this session only. When all three hold, find out whether the cause is already written down. Run `"${CLAUDE_PLUGIN_ROOT}/scripts/known-issue.sh" search <word> <word>` with two or three words of the cause. It reads the `.md` files of the directory, subdirectories too, notes written by hand included. A note in another kind of file is not searched. It prints `path:line:text` for each line that contains any of the words, ignoring case. After 20 lines it prints `(+N more matching lines)`: search again with a more specific word, because the line you need may be cut off. It exits 0 and prints nothing when no line matches. Then take the first of these that applies:
+Do not record a one-off bug fix that the commit history already shows, or something that belongs to this session only. When all three hold, find out whether the cause is already written down. Run `"${CLAUDE_PLUGIN_ROOT}/scripts/known-issue.sh" search <word> <word>` with two or three words of the cause. It reads the `.md` files of the directory, subdirectories too, notes written by hand included. A note in another kind of file is not searched. It prints `path:line:text` for each line that contains any of the words, ignoring case. After 20 lines it prints `(+N more matching lines)`: search again with a more specific word, because the line you need may be cut off. It exits 0 and prints nothing when no line matches. It exits 1 when it could not read part of the directory: then the matches may be incomplete, so fix the permissions and run it again. Then take the first of these that applies:
 
-- A listed entry has the same cause: run `"${CLAUDE_PLUGIN_ROOT}/scripts/known-issue.sh" recur <slug> "<one line: what happened this time>"`.
+- An entry has the same cause. That is a file in the `list` output, or another file whose first line starts with `rule: ` (`list` stops at 20 entries, and `search` does not say which hit is an entry). The slug is the file name without `.md`. Run `"${CLAUDE_PLUGIN_ROOT}/scripts/known-issue.sh" recur <slug> "<one line: what happened this time>"`. If it exits 5, the file is not an entry: take the next bullet.
 - A note written by hand has the same cause: do not add an entry. Tell the user which file, as a candidate to move into their CLAUDE.md.
 - Nothing has this cause: run `"${CLAUDE_PLUGIN_ROOT}/scripts/known-issue.sh" add <slug>` with the entry on stdin, in a quoted heredoc (`<<'EOF'`):
 
@@ -229,4 +229,4 @@ The slug starts with a lowercase letter or digit, then has lowercase letters, di
 - 2: secret-like text was found and nothing was written. Keep the variable name and drop the value. The scan also refuses a phrase that only looks like an assignment, such as `secret: environment-variable-values`: reword it and run it again.
 - 4: `add` found a file with this slug. The message says whether it is an entry, a symbolic link or a note written by hand. For an entry with the same cause, use `recur`. Otherwise choose another slug. The file is not changed.
 - 5: `recur` found no entry with this slug. A note written by hand or a symbolic link with that name counts as none, and is not changed.
-- 64: usage error. The message says what is wrong, for example `RESUME_MEMO_ISSUES_DIR` starting with `~` and a user name (write the full path), a bad slug, a rule or note over 200 characters, a note with a newline, a blank rule or note, an entry without the `rule:` first line, a `case:` line or a `prevention:` line, or an entry that has `count:`, `first_seen:`, `last_seen:` or `recurrence:` lines of its own.
+- 64: usage error. The message says what is wrong, for example a bad `RESUME_MEMO_ISSUES_DIR` (see "Reading"), a bad slug, a rule or note over 200 characters, a note with a newline, a blank rule or note, an entry without the `rule:` first line, a `case:` line or a `prevention:` line, or an entry that has `count:`, `first_seen:`, `last_seen:` or `recurrence:` lines of its own.

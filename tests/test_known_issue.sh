@@ -541,6 +541,67 @@ chmod 640 "$modes/mode-022.md"
 (umask 077; RESUME_MEMO_ISSUES_DIR="$modes" bash "$ki" recur mode-022 "again" > /dev/null 2>&1 </dev/null)
 if [ "$(mode_of "$modes/mode-022.md")" = "640" ]; then report "mode: a repeat keeps the mode of the entry" 0; else report "mode: a repeat keeps the mode of the entry" 1 "$(mode_of "$modes/mode-022.md")"; fi
 
+# --- search keeps the lines after a line that is not valid UTF-8
+# In a UTF-8 locale "tr" stops at such a byte and drops that line and the rest, with exit 0.
+utf8=$(locale -a 2> /dev/null | grep -i -m 1 'utf-\{0,1\}8')
+bad="$tmp/bad-bytes"
+mkdir -p "$bad"
+printf 'foo \377\376 bar\nfoo second\n' > "$bad/n.md"
+if [ -n "$utf8" ]; then
+  out=$(LC_ALL="$utf8" RESUME_MEMO_ISSUES_DIR="$bad" bash "$ki" search foo 2>&1 </dev/null)
+  rc=$?
+  expect_rc "search: a line that is not valid UTF-8 exits 0 in a UTF-8 locale" 0
+  has "search: the line after a line that is not valid UTF-8 is still printed" "foo second"
+else
+  report "search: no UTF-8 locale on this machine, test skipped" 0
+fi
+
+# --- search says so when it could not read part of the directory (an empty output is then not "no match")
+unread="$tmp/unreadable"
+mkdir -p "$unread/sub"
+printf 'foo in a note\n' > "$unread/sub/n.md"
+printf 'foo in the top note\n' > "$unread/top.md"
+if [ "$(id -u)" -ne 0 ]; then
+  chmod 000 "$unread/sub"
+  out=$(RESUME_MEMO_ISSUES_DIR="$unread" bash "$ki" search foo 2>&1 </dev/null)
+  rc=$?
+  chmod 755 "$unread/sub"
+  expect_rc "search: an unreadable subdirectory exits 1" 1
+  has "search: the message says the result may be incomplete" "incomplete"
+  has "search: the matches that could be read are still printed" "top.md"
+else
+  report "search: running as root, the unreadable-directory test is skipped" 0
+fi
+
+# --- a symbolic link is not an entry: list does not show it, because search cannot find it
+lnk="$tmp/lnk-entries"
+mkdir -p "$lnk"
+printf 'rule: real rule\ncase: c\nprevention: p\n' > "$lnk/real.md"
+ln -s real.md "$lnk/alias.md"
+out=$(RESUME_MEMO_ISSUES_DIR="$lnk" bash "$ki" list 2>&1 </dev/null)
+has "symlink: list shows the file the link points to" "real x1"
+lacks "symlink: list does not show the link" "alias"
+
+# --- HOME: ~ needs it, and a trailing slash of HOME does not double up
+# shellcheck disable=SC2088  # a literal "~" is the input under test
+out=$(HOME='' RESUME_MEMO_ISSUES_DIR='~/x' bash "$ki" dir 2>&1 </dev/null)
+rc=$?
+expect_rc "home: ~/x with an empty HOME exits 64" 64
+has "home: the message names HOME" "HOME"
+# shellcheck disable=SC2088  # a literal "~" is the input under test
+out=$(env -u HOME RESUME_MEMO_ISSUES_DIR='~/x' bash "$ki" dir 2>&1 </dev/null)
+rc=$?
+expect_rc "home: ~/x with HOME unset exits 64" 64
+# shellcheck disable=SC2088  # a literal "~" is the input under test
+out=$(HOME=/tmp/h/ RESUME_MEMO_ISSUES_DIR='~/x' bash "$ki" dir 2>&1 </dev/null)
+if [ "$out" = "/tmp/h/x" ]; then report "home: a trailing slash of HOME does not double up" 0; else report "home: a trailing slash of HOME does not double up" 1 "$out"; fi
+# shellcheck disable=SC2088  # a literal "~" is the input under test
+out=$(HOME=/ RESUME_MEMO_ISSUES_DIR='~/x' bash "$ki" dir 2>&1 </dev/null)
+if [ "$out" = "/x" ]; then report "home: HOME=/ gives /x" 0; else report "home: HOME=/ gives /x" 1 "$out"; fi
+# shellcheck disable=SC2088  # a literal "~" is the input under test
+out=$(HOME=/ RESUME_MEMO_ISSUES_DIR='~' bash "$ki" dir 2>&1 </dev/null)
+if [ "$out" = "/" ]; then report "home: ~ with HOME=/ gives /" 0; else report "home: ~ with HOME=/ gives /" 1 "$out"; fi
+
 # --- usage
 run "" nonsense
 expect_rc "usage: an unknown command exits 64" 64
