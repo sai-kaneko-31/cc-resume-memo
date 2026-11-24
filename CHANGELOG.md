@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-24
+
+First tagged release. Earlier commits carried the version 0.1.0 in `plugin.json` but were never tagged, so everything below is new to a user who installs this release.
+
 ### Added
 
 - `resume-memo` skill: writes the working state that exists only in the conversation to a per-session YAML memo, with observations and inferences as separate items and a `basis` for each inference.
