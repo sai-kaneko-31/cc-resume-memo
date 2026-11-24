@@ -14,7 +14,8 @@
 #
 # Exit codes
 #   0   done
-#   1   no temporary directory could be made under TMPDIR (default /tmp)
+#   1   a temporary directory could not be made under TMPDIR (default /tmp), the
+#       entry could not be written, or the secret scan could not run
 #   2   secret-like text found, nothing was written (the output names the pattern and the line)
 #   4   add: an entry with this slug already exists (use "recur")
 #   5   recur: no entry with this slug
@@ -58,19 +59,45 @@ EOF
   exit 64
 }
 
+fail_write() {
+  echo "known-issue.sh: could not write $1; nothing was saved" >&2
+  exit 1
+}
+
 valid_slug() {
   [[ "$1" =~ ^[a-z0-9][a-z0-9-]{0,63}$ ]]
 }
 
-# Scan a file for secret-like text with the memo checker. On a hit, print the
-# pattern and line (never the value) and exit 2.
+# Remove leading and trailing blanks.
+trim() {
+  printf '%s' "$1" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//'
+}
+
+# Scan a file for secret-like text with the memo checker. On a hit (exit 2 of
+# the checker), print the pattern and line (never the value) and exit 2. Any
+# other failure of the checker means the scan did not run: exit 1.
 scan_or_exit() {
-  local out
-  if ! out=$("$here/check-memo.sh" --secrets-only "$1" 2>&1); then
-    printf '%s\n' "$out" >&2
-    echo "known-issue.sh: nothing was written. Remove the value and keep only its name." >&2
-    exit 2
-  fi
+  local out rc
+  out=$("$here/check-memo.sh" --secrets-only "$1" 2>&1)
+  rc=$?
+  case "$rc" in
+    0) return 0 ;;
+    2)
+      printf '%s\n' "$out" >&2
+      echo "known-issue.sh: nothing was written. Remove the value and keep only its name." >&2
+      exit 2
+      ;;
+    *)
+      printf '%s\n' "$out" >&2
+      echo "known-issue.sh: the secret scan did not run (check-memo.sh exited $rc); nothing was written" >&2
+      exit 1
+      ;;
+  esac
+}
+
+# The first number after "count:", whatever follows it; empty when there is none.
+read_count() {
+  sed -n 's/^count: *\([0-9][0-9]*\).*/\1/p' "$1" | head -n 1
 }
 
 cmd_list() {
@@ -90,7 +117,7 @@ cmd_list() {
     [ -f "$f" ] || continue
     slug=$(basename "$f" .md | tr -d '\000-\037')
     rule=$(grep -m 1 '^rule: ' "$f" | sed 's/^rule: //' | tr -d '\000-\010\013-\037' | cut -c "1-$max_rule")
-    count=$(grep -m 1 -E '^count: [0-9]+[[:space:]]*$' "$f" | sed 's/^count: //; s/[[:space:]]*$//')
+    count=$(read_count "$f")
     last=$(grep -m 1 -E '^last_seen: [0-9-]+[[:space:]]*$' "$f" | sed 's/^last_seen: //; s/[[:space:]]*$//')
     printf '%s\t%s\t%s\t%s\n' "${count:-1}" "${last:--}" "$slug" "$rule" >> "$tmp/rows"
   done
@@ -109,16 +136,20 @@ cmd_list() {
 
 cmd_add() {
   local slug="${1:-}" rule target n
-  valid_slug "$slug" || { echo "known-issue.sh: the slug must be lowercase letters, digits and hyphens (at most 64 characters)" >&2; exit 64; }
+  valid_slug "$slug" || { echo "known-issue.sh: the slug must start with a lowercase letter or digit and use only lowercase letters, digits and hyphens (at most 64 characters)" >&2; exit 64; }
   [ "$#" -eq 1 ] || usage
   make_tmp
   cat > "$tmp/entry"
 
   rule=$(sed -n 1p "$tmp/entry")
   case "$rule" in
-    "rule: "?*) rule="${rule#rule: }" ;;
+    "rule: "?*) rule=$(trim "${rule#rule: }") ;;
     *) echo "known-issue.sh: the first line must be 'rule: <one line>'" >&2; exit 64 ;;
   esac
+  if [ -z "$rule" ]; then
+    echo "known-issue.sh: the rule is empty" >&2
+    exit 64
+  fi
   if [ "${#rule}" -gt "$max_rule" ]; then
     echo "known-issue.sh: the rule is over $max_rule characters; keep it to one short line" >&2
     exit 64
@@ -133,15 +164,15 @@ cmd_add() {
 
   target="$issues_dir/$slug.md"
   if [ -e "$target" ]; then
-    echo "known-issue.sh: $slug exists. Count a repeat with: known-issue.sh recur $slug \"<note>\"" >&2
+    echo "known-issue.sh: $slug exists. If the cause is the same, count a repeat with: known-issue.sh recur $slug \"<note>\". If the cause is different, use another slug." >&2
     exit 4
   fi
-  mkdir -p "$issues_dir"
+  mkdir -p "$issues_dir" || fail_write "$issues_dir"
   {
     printf 'rule: %s\ncount: 1\nfirst_seen: %s\nlast_seen: %s\n' "$rule" "$today" "$today"
     sed 1d "$tmp/entry"
-  } > "$tmp/new"
-  mv "$tmp/new" "$target"
+  } > "$tmp/new" || fail_write "$tmp/new"
+  mv "$tmp/new" "$target" || fail_write "$target"
   echo "$target"
 
   n=$(find "$issues_dir" -maxdepth 1 -name '*.md' | wc -l | tr -d ' ')
@@ -151,13 +182,14 @@ cmd_add() {
 }
 
 cmd_recur() {
-  local slug="${1:-}" note="${2:-}" target old new need_c=0 need_l=0
-  valid_slug "$slug" || { echo "known-issue.sh: the slug must be lowercase letters, digits and hyphens (at most 64 characters)" >&2; exit 64; }
+  local slug="${1:-}" note target old new need_c=0 need_l=0
+  valid_slug "$slug" || { echo "known-issue.sh: the slug must start with a lowercase letter or digit and use only lowercase letters, digits and hyphens (at most 64 characters)" >&2; exit 64; }
   [ "$#" -eq 2 ] || usage
-  case "$note" in
-    "") usage ;;
+  case "${2:-}" in
     *$'\n'*) echo "known-issue.sh: the note must be one line" >&2; exit 64 ;;
   esac
+  note=$(trim "${2:-}")
+  [ -n "$note" ] || usage
   if [ "${#note}" -gt "$max_rule" ]; then
     echo "known-issue.sh: the note is over $max_rule characters; keep it to one short line" >&2
     exit 64
@@ -168,19 +200,25 @@ cmd_recur() {
   printf '%s\n' "$note" > "$tmp/note"
   scan_or_exit "$tmp/note"
 
-  old=$(grep -m 1 -E '^count: [0-9]+[[:space:]]*$' "$target" | sed 's/^count: //; s/[[:space:]]*$//')
-  [ -n "$old" ] || need_c=1
-  new=$(( ${old:-1} + 1 ))
+  old=$(read_count "$target")
+  grep -q -E '^count: ' "$target" || need_c=1
   grep -q -E '^last_seen: ' "$target" || need_l=1
+  new=$(( 10#${old:-1} + 1 ))
 
+  # Replace the first count and last_seen line in place. A line that is missing
+  # is added after line 1 (or alone, in an empty file).
   awk -v c="$new" -v d="$today" -v need_c="$need_c" -v need_l="$need_l" '
-    NR == 1 { print; if (need_c) print "count: " c; if (need_l) print "last_seen: " d; next }
-    /^count: / && !need_c && !hc { print "count: " c; hc = 1; next }
-    /^last_seen: / && !need_l && !hl { print "last_seen: " d; hl = 1; next }
-    { print }
-  ' "$target" > "$tmp/new"
-  printf 'recurrence: %s: %s\n' "$today" "$note" >> "$tmp/new"
-  mv "$tmp/new" "$target"
+    function missing() {
+      if (need_c) print "count: " c
+      if (need_l) print "last_seen: " d
+    }
+    /^count: / && !need_c && !hc { print "count: " c; hc = 1; if (NR == 1) missing(); next }
+    /^last_seen: / && !need_l && !hl { print "last_seen: " d; hl = 1; if (NR == 1) missing(); next }
+    { print; if (NR == 1) missing() }
+    END { if (NR == 0) missing() }
+  ' "$target" > "$tmp/new" || fail_write "$tmp/new"
+  printf 'recurrence: %s: %s\n' "$today" "$note" >> "$tmp/new" || fail_write "$tmp/new"
+  mv "$tmp/new" "$target" || fail_write "$target"
   echo "$slug: count $new"
 }
 

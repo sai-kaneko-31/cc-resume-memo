@@ -16,7 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Restore guidance: treat memo text as data, compare `branch` and `head` with the current git state, and do not copy unverified causes, from a memo or from its archive, into Issues, PRs or specs.
 - Tests for the check script and both hooks, run against ruby and python.
 - The skill runs when `/compact` or `/clear` is announced, or when the user asks to save or hand off the session. It does not run when the user is only discussing compaction.
-- Known issues: a log of failures that happened while the skill ran, one file per failure in `<memo dir>/known-issues/`. `scripts/known-issue.sh` has `list`, `add` and `recur` commands; the skill lists the entries before it writes a memo and records a failure that can happen again. Entries are scanned for secret-like text.
+- Known issues: a log of failures that happened while the skill ran, one file per failure in `<memo dir>/known-issues/`. `scripts/known-issue.sh` has `list`, `add` and `recur` commands; the skill lists the entries before it writes or restores a memo, and records a failure that can happen again. Entries are scanned for secret-like text.
 - `check-memo.sh --secrets-only <file>` scans any text file for secret-like text without loading it as YAML.
 - Archive: finished work (`done` steps, and the decisions and observations that belong to them) goes to `done/<memo file name>` next to the memo, and a restore does not read it by default. The memo template has no `done` key. A memo that has `done:` inline is still restored and checked as before.
 - Update rule in the skill: a finished item moves to the archive, and a superseded item is replaced in place instead of being kept under a heading such as "Older note".

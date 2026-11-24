@@ -195,6 +195,78 @@ rc=$?
 expect_rc "list: the default directory is under HOME" 0
 has "list: the default directory is read" "from-home"
 
+# --- hand-written entries and blank input
+write_entry() { # <slug> <content>
+  mkdir -p "$issues"
+  printf '%s' "$2" > "$issues/$1.md"
+}
+write_entry oct9 $'rule: a\ncount: 09\nlast_seen: 2026-11-01\ncase: c\nprevention: p\n'
+run "" recur oct9 "n"
+file_has "recur: a count with a leading zero is read as decimal (09 becomes 10)" "$issues/oct9.md" 'count: 10'
+write_entry oct10 $'rule: a\ncount: 010\nlast_seen: 2026-11-01\ncase: c\nprevention: p\n'
+run "" recur oct10 "n"
+file_has "recur: 010 becomes 11, not 9" "$issues/oct10.md" 'count: 11'
+
+write_entry count-first $'count: 3\nrule: a\ncase: c\nprevention: p\n'
+run "" recur count-first "n"
+if [ "$(head -n 1 "$issues/count-first.md")" = 'count: 4' ]; then report "recur: a count on line 1 is updated" 0; else report "recur: a count on line 1 is updated" 1 "$(head -n 1 "$issues/count-first.md")"; fi
+file_has "recur: the missing last_seen is added" "$issues/count-first.md" 'last_seen: 2026-11-24'
+run "" list
+has "list: the entry with the count on line 1 shows x4" "count-first x4"
+
+write_entry count-words $'rule: a\ncount: 3 times\nlast_seen: 2026-11-01\ncase: c\nprevention: p\n'
+run "" recur count-words "n"
+n_count=$(grep -c '^count: ' "$issues/count-words.md")
+if [ "$n_count" -eq 1 ]; then report "recur: a count line with words after the number stays one line" 0; else report "recur: a count line with words after the number stays one line" 1 "$n_count lines"; fi
+file_has "recur: the number after the words is counted from 3" "$issues/count-words.md" 'count: 4'
+
+: > "$issues/empty-entry.md"
+run "" recur empty-entry "n"
+expect_rc "recur: an empty file is counted" 0
+file_has "recur: an empty file gets a count" "$issues/empty-entry.md" 'count: 2'
+file_has "recur: an empty file gets last_seen" "$issues/empty-entry.md" 'last_seen: 2026-11-24'
+
+write_entry no-newline $'rule: a\ncount: 1\nlast_seen: 2026-11-01\ncase: c\nprevention: p'
+run "" recur no-newline "n"
+file_has "recur: a file without a final newline keeps its last line" "$issues/no-newline.md" 'prevention: p'
+if grep -q '^recurrence: ' "$issues/no-newline.md"; then report "recur: the recurrence line starts on its own line" 0; else report "recur: the recurrence line starts on its own line" 1; fi
+
+run $'rule:   \ncase: c\nprevention: p' add blank-rule
+expect_rc "add: a blank rule exits 64" 64
+run "" recur oct9 "   "
+expect_rc "recur: a blank note exits 64" 64
+run $'rule:   spaced out   \ncase: c\nprevention: p' add trimmed-rule
+if [ "$(head -n 1 "$issues/trimmed-rule.md")" = 'rule: spaced out' ]; then report "add: the rule is stored without surrounding blanks" 0; else report "add: the rule is stored without surrounding blanks" 1 "$(head -n 1 "$issues/trimmed-rule.md")"; fi
+
+# --- a failed write is reported, not hidden
+if [ "$(id -u)" -ne 0 ]; then
+  write_entry readonly-entry $'rule: a\ncount: 1\nlast_seen: 2026-11-01\ncase: c\nprevention: p\n'
+  chmod 555 "$issues"
+  run "$entry" add cannot-write
+  expect_rc "write failure: add exits 1 when the directory is read-only" 1
+  # The success line is the path alone; the error message names the path inside a sentence.
+  if printf '%s\n' "$out" | grep -q -x -F "$issues/cannot-write.md"; then report "write failure: add prints no success line" 1; else report "write failure: add prints no success line" 0; fi
+  has "write failure: add says nothing was saved" "nothing was saved"
+  run "" recur readonly-entry "n"
+  expect_rc "write failure: recur exits 1 when the directory is read-only" 1
+  lacks "write failure: recur prints no count" "count 2"
+  chmod 755 "$issues"
+  file_has "write failure: the entry keeps its count" "$issues/readonly-entry.md" 'count: 1'
+else
+  echo "SKIP write failure cases: running as root, a read-only directory can still be written"
+fi
+
+# --- a secret scan that did not run is not reported as a secret
+mkdir -p "$tmp/scripts-copy"
+cp "$root"/scripts/*.sh "$tmp/scripts-copy/"
+printf '#!/usr/bin/env bash\nexit 64\n' > "$tmp/scripts-copy/check-memo.sh"
+out=$(printf '%s' "$entry" | RESUME_MEMO_DIR="$dir" bash "$tmp/scripts-copy/known-issue.sh" add scan-broken 2>&1)
+rc=$?
+expect_rc "scan failure: a scan that did not run exits 1, not 2" 1
+has "scan failure: the message says the scan did not run" "did not run"
+lacks "scan failure: it does not tell the user to remove a value" "Remove the value"
+if [ ! -e "$issues/scan-broken.md" ]; then report "scan failure: nothing is written" 0; else report "scan failure: nothing is written" 1; fi
+
 # --- temporary directory
 # macOS "mktemp -d" without a template ignores TMPDIR and fails where only TMPDIR is writable (a sandbox),
 # so the script must ask for a template under TMPDIR, and say so when that fails.
