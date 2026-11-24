@@ -51,9 +51,18 @@ The skill does not run when you are only talking about compaction. It runs when 
 
 Memos are written to `~/.claude/resume-memos/<YYYYMMDD-HHMM>-<project>-<task-slug>.yml`. Set `RESUME_MEMO_DIR` to use another directory. The hooks read the same variable.
 
+## The archive
+
+A restore reads the whole memo, so finished items would cost tokens in every restore. Finished work goes to a second file that a restore does not read: `~/.claude/resume-memos/done/<same file name>`. That is the `done` steps, and the decisions and observations that belong to them. A memo then holds only what is needed to continue. That is what is in progress, what is next, the open questions, and the reasons behind decisions that still apply.
+
+- The `done/` directory is not matched by the pattern the hooks and the restore command use, so an archive is never listed as a memo.
+- Each update moves what has just been finished into the archive. A superseded item is replaced in place, not kept under "Older note".
+- The SessionStart hook prints the path of a memo's archive when one exists. The skill opens it only when you ask what was done.
+- A memo written before the archive existed keeps `done:` inline and restores as before. `check-memo.sh` prints a `Note:` for an open memo that still has `done` items, so they are moved when the memo is next updated.
+
 ## Hooks
 
-- `SessionStart` with the `compact` matcher: after a compaction, prints the head (task, created, cwd, branch, head, goal) of the newest three open memos of the current project, so Claude can read the one that matches.
+- `SessionStart` with the `compact` matcher: after a compaction, prints the head (task, created, cwd, branch, head, goal) of the newest three open memos of the current project. Claude can then read the one that matches. A memo that has an archive also gets an `archive:` line with its path.
 - `PreCompact`: prints instructions for the compaction summary, and the path of the newest open memo. The Claude Code hooks reference says a PreCompact hook's stdout is used as instructions for the summary. This plugin's effect on summaries has not been measured.
 
 ## The check script

@@ -1,0 +1,51 @@
+schema_version: "1.1"
+name: updates-memo-without-keeping-old-items
+description: The user updates an open memo that still has `done` items inline. A step is finished and another step is replaced. The finished items must move to the archive, and the replaced step must be rewritten in place instead of being kept as an old note.
+tags: [memo, archive, update]
+execution:
+  max_turns: 12
+  allowed_tools: [Read, Skill]
+  prompt: |
+    Read out/memo.yml. The failing test is written now (spec/exports/csv_spec.rb, it fails with `expected 10 rows, got 9`). The plan for the customer's file changed: instead of asking the customer for the 2 GB file, we will generate one with `bin/make-fixture --rows 5000000`. Update the memo at ./out/memo.yml before I run /compact. The work is still open.
+context:
+  scaffold_script: scaffold.sh
+graders:
+  # Run with --scaffold --allow-tools Write. Without Write granted, Claude
+  # cannot change the memo.
+  - name: memo-updated
+    type: regex
+    target: { source: file, path: out/memo.yml }
+    pattern: 'bin/make-fixture'
+  - name: replaced-step-is-gone
+    type: regex
+    target: { source: file, path: out/memo.yml }
+    pattern: 'ask the customer'
+    flags: i
+    match: not_contains
+  - name: no-old-note-kept
+    type: regex
+    target: { source: file, path: out/memo.yml }
+    pattern: 'older note|superseded|previously'
+    flags: i
+    match: not_contains
+  - name: memo-has-no-done-key
+    type: regex
+    target: { source: file, path: out/memo.yml }
+    pattern: '^done:'
+    flags: m
+    match: not_contains
+  - name: archive-written-next-to-the-memo
+    type: file_exists
+    path: out/done/memo.yml
+  - name: old-done-item-moved-to-the-archive
+    type: regex
+    target: { source: file, path: out/done/memo.yml }
+    pattern: '3\.2\.0'
+  - name: newly-finished-step-in-the-archive
+    type: regex
+    target: { source: file, path: out/done/memo.yml }
+    pattern: 'csv_spec\.rb'
+  - name: memo-keeps-the-next-code-step
+    type: regex
+    target: { source: file, path: out/memo.yml }
+    pattern: 'app/exports/csv\.rb:42'

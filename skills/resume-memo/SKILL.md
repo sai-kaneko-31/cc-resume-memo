@@ -13,8 +13,8 @@ Run only when the user asks to save the state now, or announces /compact or /cle
 ## Steps
 
 1. Decide the path ("Where to write").
-2. Write the memo with the template ("Template").
-3. Check the memo ("Check after writing").
+2. Write the memo with the template ("Template"). Finished work goes to the archive, not into the memo ("The archive").
+3. Check the memo, and the archive if you wrote one ("Check after writing").
 4. Tell the user the path and how to restore ("Closing message").
 
 ## Where to write
@@ -26,6 +26,7 @@ Resolve the directory with `echo "${RESUME_MEMO_DIR:-$HOME/.claude/resume-memos}
 - Do not write inside the project. It would need a `.gitignore` entry in every repository, and the memo could end up committed.
 - `<project>` is the repository's name: the main checkout's directory name, not a worktree's (for example `myapp`). Outside a repository, use the working directory's name. The name is in the file name so that a restore can filter by project.
 - `<task-slug>` is a short English phrase that says what the work is (for example `fix-csv-export`).
+- Finished work goes to a second file, `<dir>/done/<same file name>` ("The archive"). If the user names a path, `done/` is next to that file.
 
 Only a later Claude session reads the memo, so it is YAML with fixed keys: fewer omissions when writing, fewer skipped items when restoring.
 
@@ -73,8 +74,6 @@ head: <commit hash>
 goal: <what this session is trying to achieve; summary of the user's original request>
 user_instructions:
   - <instruction or preference from the user that still applies>
-done:
-  - <what is finished>
 in_progress:
   - <what is partway, and how far>
 decisions:
@@ -104,6 +103,21 @@ The template is a checklist, not a form to fill in. Delete empty keys. Writing r
 - The first six keys (`task` to `head`) are one-line values, so that `grep -l '^status: open' <dir>/*.yml` finds memos line by line.
 - Use a block scalar (`|`) when a value contains `: ` or ` #` (an issue reference such as `see issue #123` counts: YAML reads ` #123` as the start of a comment and drops it with the rest of the line), starts with a symbol (backtick, `"`, `'`, `[`, `{`, `*`, `&`, `!`, `|`, `>`, `%`, `@`, `- `, `? `), or is verbatim multi-line text such as an error message or command output. A block scalar keeps text verbatim more reliably than quoting.
 - `status` is `open` when there is something to continue and `done` when the work is finished. Write `open` when creating a memo.
+- The template has no `done` key: finished work goes to the archive (next section).
+
+## The archive
+
+A restore reads the whole memo, so a finished item costs tokens in every restore and does not help the next session continue. Put finished work in an archive file that a restore does not read.
+
+- Path: `<dir>/done/<same file name as the memo>`. Create `done/` if it does not exist. Do not use a sibling such as `<name>.done.yml`: it matches the `*-<project>-*.yml` pattern that the hooks and the restore command search.
+- Keys: the memo's key names, with no header keys and no `status`.
+  - `done`: finished steps, one string each.
+  - `decisions` and `observations`: items that belong to finished work, when no `in_progress`, `next` or `open_questions` item depends on them.
+  - `failed` stays in the memo, because a failed approach still warns the next session.
+- Move an item, do not copy it: it lives in one file. The first write puts everything that is already finished straight into the archive, and every later update moves what has just been finished.
+- When the archive already exists, read it and add the items under the same keys. A Write of the file would drop its earlier items.
+- When a later step needs the result of a finished item (a commit hash, a PR number, an ID), keep that result in the memo's `observations` or `refs`.
+- When nothing is finished, write no archive.
 
 ## Check after writing
 
@@ -119,6 +133,8 @@ Exit codes:
 - 1: it does not load, a list item is not a string, or text after a ` #` was read as a comment. The output says which.
 - 2: secret-like text was found on the reported lines. Remove the value and keep only the name.
 - 3: neither ruby nor python3 with PyYAML is available, so the YAML was not checked.
+
+A line that starts with `Note:` does not change the exit code. `Note: done: holds N item(s)` means an open memo still has finished items under `done`: move them to the archive. Run the check on the archive file too, whenever you wrote or changed it.
 
 Fixing exit 1:
 
@@ -142,9 +158,19 @@ Run it before the edit too and keep the output. A key that was there before and 
 
 When replacing a section, replace up to just before the next key. Replacing from `next:` to the end of the file deletes the `refs` and `commands` that follow it. The load still succeeds, so only the key list shows it.
 
+Keep the memo to what is current. Each update does one of these to an item that has changed:
+
+- It is finished: move it to the archive ("The archive").
+- It was replaced or overtaken (a step that changed, a note that is no longer true): replace it in place or delete it. Never keep the old text under "Older note" or "Superseded", because the next session cannot tell which text is current.
+- It is still true: leave it as it is.
+
+Compare `wc -l` before and after the update. If the memo grew, check that what you added is new (a decision, a failure, an open question, a next step) and not a status change of something already there.
+
 ## Restoring
 
-When the user pastes a path, read that memo. Otherwise take the newest open memo of the current project: `grep -l '^status: open' <dir>/*-<project>-*.yml`. The last line of the output is the newest, because file names start with a timestamp. The plugin's SessionStart hook for compaction does this lookup automatically and prints the head of the newest open memos.
+When the user pastes a path, read that memo. Otherwise take the newest open memo of the current project: `grep -l '^status: open' <dir>/*-<project>-*.yml`. The last line of the output is the newest, because file names start with a timestamp. The plugin's SessionStart hook for compaction does this lookup automatically. It prints the head of the newest open memos, and the path of a memo's archive when one exists.
+
+Read the memo only. Its archive (`<dir>/done/<same file name>`) holds finished work, which the next session does not need to continue. Open it only when the user asks what was done, or when a `next` item points at finished work. A memo written before the archive existed keeps `done:` inline and restores the same way. When you update such a memo, move its `done` items to the archive.
 
 Before relying on a memo:
 
@@ -158,7 +184,7 @@ When the resumed work is finished, set `status: done` and run the check as in "A
 
 Always tell the user:
 
-1. The full path of the memo.
+1. The full path of the memo, and the path of the archive if you wrote one.
 2. A sentence to paste as the first message after /clear or after compaction: "Read <full path> and resume the work".
 3. If the check exited with 3: "The YAML was not checked (no ruby, and no python3 with PyYAML)".
 

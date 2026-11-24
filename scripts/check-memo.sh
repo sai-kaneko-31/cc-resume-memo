@@ -11,6 +11,13 @@
 #   3   neither ruby nor python3 with PyYAML is available: the YAML was NOT checked
 #   64  usage error
 #
+# Notes (printed as "Note: ...", they never change the exit code)
+#   An open memo that still has items under "done:" gets a note: finished items
+#   belong in the archive (done/<memo file name>), not in the memo a restore reads.
+#   The check is line-based, so it also runs when no YAML runtime is available.
+#
+# The same script checks an archive file (no header keys, no status).
+#
 # Environment (mainly for the tests)
 #   RESUME_MEMO_YAML    ruby | python | none    force the YAML runtime
 #   RESUME_MEMO_PYTHON  python executable to use instead of python3
@@ -194,6 +201,16 @@ case "$yaml_status" in
   1) echo "YAML: FAILED ($yaml_label)"; printf '%s\n' "$yaml_out" ;;
   3) echo "YAML: NOT CHECKED (no ruby, and no python3 with PyYAML)" ;;
 esac
+
+# Count the top-level items under "done:" in an open memo. An item starts with
+# "- " at indent 0 to 2; the text of a block scalar is indented deeper, so a
+# "- " inside it is not counted.
+if grep -q '^status: open[[:space:]]*$' "$file"; then
+  done_count=$(awk '/^done:/ {f=1; next} /^[^[:space:]-]/ {f=0} f && /^ ? ?- / {n++} END {print n+0}' "$file")
+  if [ "$done_count" -gt 0 ]; then
+    echo "Note: done: holds $done_count item(s). Finished items belong in the archive (done/<memo file name>), not in an open memo."
+  fi
+fi
 if [ -n "$secret_hits" ]; then
   echo "Possible secrets (remove the value, keep only the name):"
   printf '%s' "$secret_hits"
