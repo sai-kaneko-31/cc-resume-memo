@@ -657,6 +657,22 @@ out=$(RESUME_MEMO_ISSUES_DIR="$big" bash "$ki" recur edge "again" 2>&1 </dev/nul
 rc=$?
 expect_rc "count: a count of 15 digits is still counted" 0
 has "count: 15 digits plus one is 1000000000000000" "count 1000000000000000"
+printf 'rule: zeros\ncase: c\nprevention: p\ncount: 0000000000000000001\n' > "$big/zeros.md"
+out=$(RESUME_MEMO_ISSUES_DIR="$big" bash "$ki" recur zeros "again" 2>&1 </dev/null)
+rc=$?
+expect_rc "count: leading zeros do not make a small count too long" 0
+has "count: 0000000000000000001 plus one is 2" "count 2"
+
+# --- search folds the case of ASCII letters only (grep runs in the C locale), as the docs say
+fold="$tmp/fold"
+mkdir -p "$fold"
+printf 'Caf\303\211 ASCII Word\n' > "$fold/e.md"
+out=$(RESUME_MEMO_ISSUES_DIR="$fold" bash "$ki" search "ascii word" 2>&1 </dev/null)
+has "search: an ASCII word matches whatever its case" "e.md:1:"
+out=$(RESUME_MEMO_ISSUES_DIR="$fold" bash "$ki" search "café" 2>&1 </dev/null)
+if [ -z "$out" ]; then report "search: a non-ASCII letter is not case-folded (documented)" 0; else report "search: a non-ASCII letter is not case-folded (documented)" 1 "$out"; fi
+out=$(RESUME_MEMO_ISSUES_DIR="$fold" bash "$ki" search "CafÉ" 2>&1 </dev/null)
+has "search: the same letters in the same case match" "e.md:1:"
 
 # --- usage
 run "" nonsense

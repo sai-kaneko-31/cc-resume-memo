@@ -42,7 +42,7 @@
 #   5   recur: no entry with this slug (a file that is not an entry, and a symbolic
 #       link, count as none)
 #   64  usage error, an entry that does not have the required lines, recur: a
-#       count: line of more than 15 digits, or a RESUME_MEMO_ISSUES_DIR that starts
+#       count: line of more than 15 digits (leading zeros not counted), or a RESUME_MEMO_ISSUES_DIR that starts
 #       with ~name, or with ~ while HOME is empty. Every command exits 64 for the
 #       setting, before it does anything else.
 #
@@ -343,7 +343,7 @@ cmd_add() {
 }
 
 cmd_recur() {
-  local slug="${1:-}" note target old new need_c=0 need_l=0
+  local slug="${1:-}" note target old old_digits new need_c=0 need_l=0
   valid_slug "$slug" || { echo "known-issue.sh: the slug must start with a lowercase letter or digit and use only lowercase letters, digits and hyphens (at most 64 characters)" >&2; exit 64; }
   [ "$#" -eq 2 ] || usage
   case "${2:-}" in
@@ -366,7 +366,9 @@ cmd_recur() {
 
   old=$(read_count "$target")
   # 10#N + 1 wraps around to a negative number in bash from 19 digits on.
-  if [ "${#old}" -gt 15 ]; then
+  # Leading zeros do not make a number larger.
+  old_digits=${old#"${old%%[!0]*}"}
+  if [ "${#old_digits}" -gt 15 ]; then
     echo "known-issue.sh: the count of $slug.md has more than 15 digits. It was not changed. Fix its count: line by hand." >&2
     exit 64
   fi
