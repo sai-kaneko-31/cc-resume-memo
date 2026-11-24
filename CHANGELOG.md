@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-24
+
 ### Added
 
 - `RESUME_MEMO_ISSUES_DIR`: the directory of the known-issues entries, for a directory the user already fills by hand. A leading `~/` is expanded, and `~name/` is refused with exit 64, as is `~` while HOME is empty. The default stays `known-issues/` inside the memo directory.
