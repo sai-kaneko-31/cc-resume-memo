@@ -51,6 +51,16 @@ The skill does not run when you are only talking about compaction. It runs when 
 
 Memos are written to `~/.claude/resume-memos/<YYYYMMDD-HHMM>-<project>-<task-slug>.yml`. Set `RESUME_MEMO_DIR` to use another directory. The hooks read the same variable.
 
+## Known issues
+
+The skill keeps a small log of its own failures, so the next run does not repeat them. It is separate from the memos: a memo is the state of one session, an entry is what to do differently next time.
+
+- One file per failure: `~/.claude/resume-memos/known-issues/<slug>.md`. A file has a one-line `rule:`, a `case:` and a `prevention:`, plus `count`, `first_seen` and `last_seen`. A repeat of the same cause adds to the count and appends a `recurrence:` line instead of creating a second file.
+- Before writing a memo, and before relying on one in a restore, the skill runs `scripts/known-issue.sh list`. It prints one line per entry, the most repeated first, at most 20 entries and then a `(+N more ...)` line, and nothing when there are no entries. The skill opens an entry's file only when the rule line is not enough.
+- After a run in which a step failed or had to be redone, and the cause can happen again, the skill records it. A slip with no general cause, such as a mistyped path, is not recorded.
+- Only failures of this skill's own work (writing, checking, updating or restoring a memo) are recorded. This is not a log of everything that went wrong in a session. The entries live only under the memo directory, even when a memo is saved to a path you named.
+- Entries are scanned for secret-like text before they are written, with the same patterns as the memo check. It is a safety net, not a guarantee. When an entry has been moved into your `CLAUDE.md` or into the skill's text, delete its file.
+
 ## The archive
 
 A restore reads the whole memo, so finished items would cost tokens in every restore. Finished work goes to a second file that a restore does not read by default: `~/.claude/resume-memos/done/<same file name>`. That is the `done` steps, and the decisions and observations that belong to them. A memo then holds only what is needed to continue. That is what is in progress, what is next, the open questions, and the decisions and observations that those items still depend on.
@@ -72,6 +82,7 @@ A restore reads the whole memo, so finished items would cost tokens in every res
 - It loads the YAML, and reports list items that YAML read as something other than text (a plain item containing `: ` becomes a mapping, and a bare `yes` becomes a boolean). The load succeeds in both cases, so only this check catches them.
 - It scans for secret-like text (private key headers, GitHub, Slack and AWS keys, URLs with credentials, bearer tokens, `key=value` assignments) and names the pattern and the line, not the value. It is a safety net, not a guarantee.
 - Exit codes: 0 ok, 1 YAML problem, 2 secret-like text, 3 YAML not checked because neither ruby nor python3 with PyYAML is installed.
+- `--secrets-only <file>` scans any text file for secret-like text and does not load it as YAML (exit 0, 2 for secret-like text, or 64 when the file is missing). `known-issue.sh` uses it on the entries it writes.
 - A `Note:` line never changes the exit code. An open memo that still has `done` items gets one.
 - It also checks an archive file (no header keys, no `status`).
 

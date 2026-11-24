@@ -147,6 +147,21 @@ expect "no runtime: valid memo is reported as not checked" 3 "NOT CHECKED" -- en
 expect "no runtime: a secret is still found" 2 "GitHub token" -- env RESUME_MEMO_YAML=none "$check" "$tmp/secret-gh.yml"
 expect "no runtime: the done note is still printed" 3 "Note: done: holds 2 item(s)" -- env RESUME_MEMO_YAML=none "$check" "$tmp/open-with-done.yml"
 expect "no runtime: --keys" 3 "" -- env RESUME_MEMO_YAML=none "$check" --keys "$tmp/valid.yml"
+# --secrets-only scans any text file (a known-issues entry is not YAML) and never loads it as YAML.
+printf 'rule: not: valid: yaml\nnote: [unclosed\n' > "$tmp/not-yaml.txt"
+printf 'rule: has a secret\nnote: token %s\n' "$gh_token" > "$tmp/not-yaml-secret.txt"
+expect "secrets-only: text that is not YAML and has no secret" 0 "" -- "$check" --secrets-only "$tmp/not-yaml.txt"
+expect "secrets-only: a GitHub token in text that is not YAML" 2 "GitHub token" -- "$check" --secrets-only "$tmp/not-yaml-secret.txt"
+expect "secrets-only: works without a YAML runtime" 2 "GitHub token" -- env RESUME_MEMO_YAML=none "$check" --secrets-only "$tmp/not-yaml-secret.txt"
+so_out=$("$check" --secrets-only "$tmp/not-yaml.txt" 2>&1)
+if printf '%s' "$so_out" | grep -q -F -e "YAML"; then
+  echo "FAIL secrets-only: the output does not mention YAML"
+  fail=$((fail + 1))
+else
+  echo "ok   secrets-only: the output does not mention YAML"
+  pass=$((pass + 1))
+fi
+expect "secrets-only: missing file" 64 "usage" -- "$check" --secrets-only "$tmp/does-not-exist.txt"
 expect "usage: no argument" 64 "usage" -- "$check"
 expect "usage: missing file" 64 "usage" -- "$check" "$tmp/does-not-exist.yml"
 

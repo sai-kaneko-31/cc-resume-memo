@@ -1,0 +1,49 @@
+schema_version: "1.1"
+name: records-a-known-issue
+description: >-
+  The recap says that an earlier save of the memo failed the check because a
+  step with ": " was written as a plain list item. The skill must record that
+  failure as a new known issue, with a one-line rule, a case and a prevention.
+tags: [known-issues]
+execution:
+  max_turns: 16
+  allowed_tools: [Read, Skill]
+  prompt: |
+    Where things stand on the CSV export bug:
+    - Next: write a failing test for the 10-row case, then fix the batch loop at app/exports/csv.rb:42.
+    - Branch fix/csv-export at commit 1a2b3c4, directory /work/myapp.
+
+    While saving the session state earlier, the check script failed. I had written the step `run: the migration` as a plain list item, and the check exited 1 with `next[0] is Hash, not a string`. I rewrote the step as a `- |` block scalar and the check passed. The same thing happens whenever a step contains `: `.
+
+    I'm about to run /compact. Save the session state to ./out/memo.yml (create the directory). My memo directory is ./out, so run the plugin's scripts with RESUME_MEMO_DIR=./out. If you record a known issue, use the slug `colon-in-plain-item`.
+graders:
+  # Run with --allow-tools Write Bash. Without Bash the scripts cannot run.
+  - name: memo-written
+    type: file_exists
+    path: out/memo.yml
+  - name: known-issue-written
+    type: file_exists
+    path: out/known-issues/colon-in-plain-item.md
+  - name: rule-is-the-first-line
+    type: regex
+    target: { source: file, path: out/known-issues/colon-in-plain-item.md }
+    pattern: '^rule: \S'
+  - name: starts-counting-at-one
+    type: regex
+    target: { source: file, path: out/known-issues/colon-in-plain-item.md }
+    pattern: '^count: 1$'
+    flags: m
+  - name: has-a-case
+    type: regex
+    target: { source: file, path: out/known-issues/colon-in-plain-item.md }
+    pattern: '^case: \S'
+    flags: m
+  - name: has-a-prevention
+    type: regex
+    target: { source: file, path: out/known-issues/colon-in-plain-item.md }
+    pattern: '^prevention: \S'
+    flags: m
+  - name: case-keeps-the-error-text-verbatim
+    type: regex
+    target: { source: file, path: out/known-issues/colon-in-plain-item.md }
+    pattern: 'is Hash, not a string'
