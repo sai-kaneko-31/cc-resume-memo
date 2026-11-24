@@ -20,7 +20,8 @@
 # write through or replace one.
 #
 # "search" prints "path:line:text" for every line of every .md file under the
-# directory (subdirectories too) that contains one of the words, ignoring case.
+# directory (subdirectories too, and not a symbolic link inside it) that contains
+# one of the words, ignoring case.
 # It prints at most 20 lines and then "(+N more matching lines)", and nothing when
 # no line matches. It exits 0 when it read everything, so an empty output with
 # exit 0 means that nothing matched, and 1 when part of the directory was not readable.
