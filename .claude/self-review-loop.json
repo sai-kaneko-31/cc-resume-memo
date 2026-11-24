@@ -1,0 +1,11 @@
+{
+  "base": "main",
+  "review_effort": "medium",
+  "max_rounds": 8,
+  "ci": "none",
+  "gates": [
+    { "name": "tests", "cmd": "bash tests/run.sh" },
+    { "name": "shellcheck", "cmd": "shellcheck --severity=warning scripts/*.sh tests/*.sh evals/*/scaffold.sh" },
+    { "name": "validate", "cmd": "claude plugin validate ." }
+  ]
+}
